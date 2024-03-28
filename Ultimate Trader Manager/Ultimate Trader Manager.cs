@@ -410,6 +410,12 @@ namespace cAlgo.Robots
             CheckSpread();
 
             ScanOrders();
+
+
+
+            EvaluateEntry();
+
+
         }
         #endregion
 
@@ -516,6 +522,63 @@ namespace cAlgo.Robots
 
                 _totalOpenOrders++;
             }
+        }
+        #endregion
+
+        #region Evaluate Entry
+        private void EvaluateEntry()
+        {
+            _signalEntry = 0;
+            if (!_isSpreadOK) return;
+            if (UseTradingHours && !_isOperatingHours) return;
+            if (_totalOpenOrders == MaxPositions) return;
+
+            if (MyTradingMode == TradingMode.Auto || MyTradingMode == TradingMode.Both)
+            {
+                if (MyAutoStrategyName == AutoStrategyName.Trend_MA)
+                {
+                    if (_fastMA.Result.LastValue > _slowMA.Result.LastValue &&
+                        _williamsPctR.Result.Last(2) < -80 && _williamsPctR.Result.Last(1) > -80)
+                        _signalEntry = 1;
+
+                    if (_fastMA.Result.LastValue < _slowMA.Result.LastValue &&
+                         _williamsPctR.Result.Last(2) > -20 && _williamsPctR.Result.Last(1) < -20)
+                        _signalEntry = -1;
+                } 
+
+                if (MyAutoStrategyName == AutoStrategyName.Trend_MA_MTF)
+                {
+                    if (_fastMA.Result.LastValue    > _slowMA.Result.LastValue    &&
+                        _ltffastMA.Result.LastValue > _ltfslowMA.Result.LastValue &&
+                        _htffastMA.Result.LastValue > _htfslowMA.Result.LastValue &&
+                        _williamsPctR.Result.LastValue > -20)
+                        _signalEntry = 1;
+
+                    if (_fastMA.Result.LastValue    < _slowMA.Result.LastValue    &&
+                        _ltffastMA.Result.LastValue < _ltfslowMA.Result.LastValue &&
+                        _htffastMA.Result.LastValue < _htfslowMA.Result.LastValue &&
+                         _williamsPctR.Result.LastValue < -80)
+                        _signalEntry = -1;
+                }
+
+               /* if (MyAutoStrategyName == AutoStrategyName.HHLL_MTF)
+                {
+                    if (IsHTFBullish() && IsMTFBullish() && IsLTFBullish() && _switchedToBullish && _williamsPctR.Result.Last(1) > -20) _signalEntry = 1;
+
+                    if (!IsHTFBullish() && !IsMTFBullish() && !IsLTFBullish() && _switchedToBearish && _williamsPctR.Result.Last(1) < -80) _signalEntry = -1;
+                }
+
+                if (MyAutoStrategyName == AutoStrategyName.RSIReversion)
+                {
+                    if (_rsi.Result.Last(1) >= OSLevel && _rsi.Result.Last(2) < OSLevel)
+                        _signalEntry = 1;
+
+                    if (_rsi.Result.Last(1) <= OBLevel && _rsi.Result.Last(2) > OBLevel)
+                        _signalEntry = -1;
+                } */
+
+            }
+
         }
         #endregion
 
