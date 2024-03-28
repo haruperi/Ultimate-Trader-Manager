@@ -403,7 +403,7 @@ namespace cAlgo.Robots
         # region OnBar function
         protected override void OnBar()
         {
-           
+            OnBarInitialization();
         }
         #endregion
 
@@ -452,6 +452,24 @@ namespace cAlgo.Robots
             }
         }
 
+        #endregion
+
+        #region OnBar Initialization 
+        private void OnBarInitialization()
+        {
+            _isPreChecksOk = false;
+            _isSpreadOK = false;
+            _isOperatingHours = false;
+
+            _totalOpenOrders = 0;
+            _totalOpenBuy = 0;
+            _totalOpenSell = 0;
+            _signalEntry = 0;
+            _signalExit = 0;
+
+            _isRecoveryTrade = false;
+            _isPyramidTrade = false;
+        }
         #endregion
 
         #endregion
