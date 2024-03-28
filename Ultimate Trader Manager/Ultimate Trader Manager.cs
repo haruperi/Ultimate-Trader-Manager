@@ -71,6 +71,14 @@ namespace cAlgo.Robots
             TP_Auto_ADR,
             TP_Auto_RRR
         };
+
+        public enum TrailingMode
+        {
+            TL_None,
+            TL_Fixed,
+            TL_Psar,
+            TL_Pyramid,
+        };
         #endregion
 
         #region Parameters of CBot
@@ -169,10 +177,10 @@ namespace cAlgo.Robots
         [Parameter("Pyramid Stop Loss", Group = "TRADE MANAGEMENT", DefaultValue = 5)]
         public double PyramidStopLoss { get; set; }
 
-        [Parameter("Use Trailing Stop ", Group = "TRADE MANAGEMENT", DefaultValue = false)]
-        public bool UseTrailingStop { get; set; }
+        [Parameter("Use Trailing Stop ", Group = "TRADE MANAGEMENT", DefaultValue = TrailingMode.TL_None)]
+        public TrailingMode MyTrailingMode { get; set; }
 
-        [Parameter("Trail After (Pips) ", Group = "TRADE MANAGEMENT", DefaultValue = 100)]
+        [Parameter("Trail After (Pips) ", Group = "TRADE MANAGEMENT", DefaultValue = 10, MinValue =1)]
         public double WhenToTrail { get; set; }
 
         [Parameter("Break-Even Losing Trades", Group = "TRADE MANAGEMENT", DefaultValue = false)]
@@ -224,6 +232,12 @@ namespace cAlgo.Robots
 
         [Parameter("RSI Source", Group = "INDICATOR SETTINGS")]
         public DataSeries RSIAppliedPrice { get; set; }
+
+        [Parameter("Min Acceleration Factor", Group = "Parabolic SAR", DefaultValue = 0.02, MinValue = 0, Step = 0.01)]
+        public double MinAccFactor { get; set; }
+
+        [Parameter("Max Acceleration Factor", Group = "Parabolic SAR", DefaultValue = 0.2, MinValue = 0, Step = 0.01)]
+        public double MaxAccFactor { get; set; }
         #endregion
 
         #region EA Settings
@@ -308,6 +322,7 @@ namespace cAlgo.Robots
 
         private RelativeStrengthIndex _rsi;
         private WilliamsPctR _williamsPctR;
+        private ParabolicSAR parabolicSAR;
         private AverageTrueRange _averageTrueRange;
         private MovingAverage _fastMA, _slowMA, _ltffastMA, _ltfslowMA, _htffastMA, _htfslowMA;
 
@@ -345,6 +360,7 @@ namespace cAlgo.Robots
             _williamsPctR = Indicators.WilliamsPctR(WPRPeriod);
             _rsi = Indicators.RelativeStrengthIndex(RSIAppliedPrice, RSIPeriod);
             _averageTrueRange = Indicators.AverageTrueRange(_dailyBars, ADRPeriod, MAType);
+            parabolicSAR = Indicators.ParabolicSAR(MinAccFactor, MaxAccFactor);
 
             _fastMA = Indicators.MovingAverage(Bars.ClosePrices, PeriodFastMA, MAType);
             _slowMA = Indicators.MovingAverage(Bars.ClosePrices, PeriodSlowMA, MAType);
@@ -390,6 +406,12 @@ namespace cAlgo.Robots
             CalculateADR();
 
             EvaluateExit();
+
+            ExecuteExit();
+
+            ScanOrders();
+
+            ExecuteTrailingStop();
         }
         #endregion
 
@@ -404,12 +426,9 @@ namespace cAlgo.Robots
 
             ScanOrders();
 
-            
-
             EvaluateEntry();
 
             ExecuteEntry();
-
 
         }
         #endregion
@@ -566,6 +585,77 @@ namespace cAlgo.Robots
                 if (totalSellPips > DefaultTakeProfit) _signalExit = -1;
             }
             if (Account.Equity > EquityTarget) _signalExit = 2;
+        }
+        #endregion
+
+        #region Execute Exit
+        private void ExecuteExit()
+        {
+
+            if (_signalExit == 0) return;
+
+            if (_signalExit == 2)
+            {
+                foreach (var position in Positions)
+                    ClosePositionAsync(position);
+
+                Stop();
+            }
+
+            if (_signalExit == 1)
+            {
+                foreach (var position in Positions)
+                {
+                    if (position.SymbolName != SymbolName) continue;
+                    if (position.Label != OrderComment) continue;
+                    if (position.TradeType != TradeType.Buy) continue;
+                    ClosePositionAsync(position);
+                }
+
+                _nextBuyCostAveLevel = 0;
+            }
+
+            if (_signalExit == -1)
+            {
+                foreach (var position in Positions)
+                {
+                    if (position.SymbolName != SymbolName) continue;
+                    if (position.Label != OrderComment) continue;
+                    if (position.TradeType != TradeType.Sell) continue;
+                    ClosePositionAsync(position);
+                }
+
+                _nextSellCostAveLevel = 0;
+            }
+
+        }
+        #endregion
+
+        #region Execute Trailing Stop
+        private void ExecuteTrailingStop()
+        {
+            if (MyTrailingMode == TrailingMode.TL_None) return;
+
+            if(MyTrailingMode == TrailingMode.TL_Psar)
+            {
+                double newStopLoss = parabolicSAR.Result.LastValue;
+
+                foreach (var position in Positions)
+                {
+                    if (position.SymbolName != SymbolName) continue;
+                    if (position.Label != OrderComment) continue;
+                    if (position.Pips < WhenToTrail) continue;
+
+                    bool isProtected = position.StopLoss.HasValue;
+
+                    if (position.TradeType == TradeType.Buy && isProtected) ModifyPosition(position, newStopLoss, null);
+                    if (position.TradeType == TradeType.Sell && isProtected) ModifyPosition(position, newStopLoss, null);
+
+                }
+            }
+
+
+
         }
         #endregion
 
