@@ -14,7 +14,7 @@ namespace cAlgo.Robots
     {
         #region Identity
 
-        public const string NAME = "RH Position Trader cBot";
+        public const string NAME = "Ultimate Trader Manager";
 
         public const string VERSION = "1.0";
 
@@ -26,13 +26,6 @@ namespace cAlgo.Robots
             All,
             Buy,
             Sell
-        }
-
-        public enum LoopMode
-        {
-            OnTick,
-            OnBar,
-            OnTimer
         }
 
         public enum TradingMode
@@ -91,8 +84,6 @@ namespace cAlgo.Robots
         #endregion
 
         #region Strategy
-        [Parameter("Loop Mode", Group = "STRATEGY", DefaultValue = LoopMode.OnBar)]
-        public LoopMode MyLoopMode { get; set; }
 
         [Parameter("Open Trade Type", Group = "STRATEGY", DefaultValue = OpenTradeType.All)]
         public OpenTradeType MyOpenTradeType { get; set; }
@@ -397,6 +388,8 @@ namespace cAlgo.Robots
         protected override void OnTick()
         {
             CalculateADR();
+
+            EvaluateExit();
         }
         #endregion
 
@@ -411,7 +404,7 @@ namespace cAlgo.Robots
 
             ScanOrders();
 
-
+            
 
             EvaluateEntry();
 
@@ -527,6 +520,55 @@ namespace cAlgo.Robots
         }
         #endregion
 
+        #region Evaluate Exit
+        private void EvaluateExit()
+        {
+            _signalExit = 0;
+
+            double totalBuyPips = 0;
+            double totalSellPips = 0;
+            if (_totalOpenBuy > 0)
+            {
+                foreach (var position in Positions)
+                {
+                    if (position.SymbolName != SymbolName) continue;
+                    if (position.Label != OrderComment) continue;
+                    if (position.TradeType != TradeType.Buy) continue;
+                    totalBuyPips += position.Pips;
+                }
+            }
+
+            if (_totalOpenSell > 0)
+            {
+                foreach (var position in Positions)
+                {
+                    if (position.SymbolName != SymbolName) continue;
+                    if (position.Label != OrderComment) continue;
+                    if (position.TradeType != TradeType.Sell) continue;
+                    totalSellPips += position.Pips;
+                }
+            }
+
+            if (BreakEvenLosing)
+            {
+                if (_totalOpenBuy > 1 && totalBuyPips > _totalOpenBuy) _signalExit = 1;
+                if (_totalOpenSell > 1 && totalSellPips > _totalOpenSell) _signalExit = -1;
+            }
+
+            if (IsCostAveTakeProfit)
+            {
+                if (totalBuyPips > DefaultTakeProfit * _totalOpenBuy) _signalExit = 1;
+                if (totalSellPips > DefaultTakeProfit * _totalOpenSell) _signalExit = -1;
+            }
+            else
+            {
+                if (totalBuyPips > DefaultTakeProfit) _signalExit = 1;
+                if (totalSellPips > DefaultTakeProfit) _signalExit = -1;
+            }
+            if (Account.Equity > EquityTarget) _signalExit = 2;
+        }
+        #endregion
+
         #region Evaluate Entry
         private void EvaluateEntry()
         {
@@ -583,6 +625,13 @@ namespace cAlgo.Robots
 
             }
 
+            if(MyTradingMode == TradingMode.Manual || MyTradingMode == TradingMode.Both) 
+            {
+            
+            }
+
+            if (_signalEntry == 1  && MyOpenTradeType == OpenTradeType.Sell) _signalEntry = 0;
+            if (_signalEntry == -1 && MyOpenTradeType == OpenTradeType.Buy) _signalEntry = 0;
         }
         #endregion
 
