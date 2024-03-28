@@ -125,19 +125,19 @@ namespace cAlgo.Robots
         [Parameter("Cal Risk From ", Group = "RISK MANAGEMENT", DefaultValue = RiskBase.BaseBalance)]
         public RiskBase MyRiskBase { get; set; }
 
-        [Parameter("Max Risk % Per Trade", Group = "RISK MANAGEMENT", DefaultValue = 1)]
-        public int MaxRiskPerTrade { get; set; }
+        [Parameter("Max Risk % Per Trade", Group = "RISK MANAGEMENT", DefaultValue = 1, MinValue = 0.1, Step = 0.01)]
+        public double MaxRiskPerTrade { get; set; }
 
-        [Parameter("Risk Reward Ratio - 1:", Group = "RISK MANAGEMENT", DefaultValue = 2)]
+        [Parameter("Risk Reward Ratio - 1:", Group = "RISK MANAGEMENT", DefaultValue = 2, MinValue = 0.1, Step = 0.01)]
         public double RiskRewardRatio { get; set; }
 
-        [Parameter("Max Positions", Group = "RISK MANAGEMENT", DefaultValue = 1)]
+        [Parameter("Max Positions", Group = "RISK MANAGEMENT", DefaultValue = 1, MinValue = 1, Step = 1)]
         public int MaxPositions { get; set; }
 
-        [Parameter("Max Buy Positions", Group = "RISK MANAGEMENT", DefaultValue = 1)]
+        [Parameter("Max Buy Positions", Group = "RISK MANAGEMENT", DefaultValue = 1, MinValue = 1, Step = 1)]
         public int MaxBuyPositions { get; set; }
 
-        [Parameter("Max Sell Positions", Group = "RISK MANAGEMENT", DefaultValue = 1)]
+        [Parameter("Max Sell Positions", Group = "RISK MANAGEMENT", DefaultValue = 1, MinValue = 1, Step = 1)]
         public int MaxSellPositions { get; set; }
 
         [Parameter("Stop Loss Mode", Group = "RISK MANAGEMENT", DefaultValue = StopLossMode.SL_Fixed)]
@@ -239,10 +239,10 @@ namespace cAlgo.Robots
         #endregion
 
         #region EA Settings
-        [Parameter("Max Slippage ", Group = "EA SETTINGS", DefaultValue = 1)]
+        [Parameter("Max Slippage ", Group = "EA SETTINGS", DefaultValue = 1, MinValue = 1)]
         public int MaxSlippage { get; set; }
 
-        [Parameter("Max Spread Allowed ", Group = "EA SETTINGS", DefaultValue = 3)]
+        [Parameter("Max Spread Allowed ", Group = "EA SETTINGS", DefaultValue = 3, MinValue = 1)]
         public int MaxSpread { get; set; }
 
         [Parameter("Bot Label", Group = "EA SETTINGS", DefaultValue = "RH Bot - ")]
@@ -339,7 +339,12 @@ namespace cAlgo.Robots
         #region OnStart function
         protected override void OnStart()
         {
-            
+            //For debugging
+            System.Diagnostics.Debugger.Launch();
+
+            CheckPreChecks();
+
+            if (!_isPreChecksOk) Stop();
         }
         #endregion
 
@@ -369,6 +374,39 @@ namespace cAlgo.Robots
         {
 
         }
+        #endregion
+
+        #endregion
+
+        #region Custom Functions 
+        #region CheckPreChecks
+        private void CheckPreChecks()
+        {
+            _isPreChecksOk = true;
+
+            //Slippage must be >= 0
+            if (MaxSlippage < 0)
+            {
+                _isPreChecksOk = false;
+                Print("Slippage must be a positive value");
+                return;
+            }
+            //MaxSpread must be >= 0
+            if (MaxSpread < 0)
+            {
+                _isPreChecksOk = false;
+                Print("Maximum Spread must be a positive value");
+                return;
+            }
+            //MaxRiskPerTrade is a % between 0 and 100
+            if (MaxRiskPerTrade < 0 || MaxRiskPerTrade > 100)
+            {
+                _isPreChecksOk = false;
+                Print("Maximum Risk Per Trade must be a percentage between 0 and 100");
+                return;
+            }
+        }
+
         #endregion
 
         #endregion
