@@ -12,25 +12,30 @@ namespace cAlgo.Robots
     [Robot(AccessRights = AccessRights.None)]
     public class UltimateTraderManager : Robot
     {
-        [Parameter(DefaultValue = "Hello world!")]
-        public string Message { get; set; }
-
         protected override void OnStart()
         {
-            // To learn more about cTrader Automate visit our Help Center:
-            // https://help.ctrader.com/ctrader-automate
-
-            Print(Message);
+            
         }
 
         protected override void OnTick()
         {
-            // Handle price updates here
+            
         }
+
+        protected override void OnBar()
+        {
+           
+        }
+
 
         protected override void OnStop()
         {
-            // Handle cBot stop here
+            
+        }
+
+        protected override void OnException(Exception exception)
+        {
+
         }
     }
 }
