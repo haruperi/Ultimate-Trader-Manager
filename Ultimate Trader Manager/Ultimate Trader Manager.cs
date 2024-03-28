@@ -239,8 +239,8 @@ namespace cAlgo.Robots
         [Parameter("Max Slippage ", Group = "EA SETTINGS", DefaultValue = 1, MinValue = 1)]
         public int MaxSlippage { get; set; }
 
-        [Parameter("Max Spread Allowed ", Group = "EA SETTINGS", DefaultValue = 3, MinValue = 1)]
-        public int MaxSpread { get; set; }
+        [Parameter("Max Spread Allowed ", Group = "EA SETTINGS", DefaultValue = 3, MinValue = 1, Step = 0.1)]
+        public double MaxSpread { get; set; }
 
         [Parameter("Bot Label", Group = "EA SETTINGS", DefaultValue = "RH Bot - ")]
         public string BotLabel { get; set; }
@@ -406,6 +406,8 @@ namespace cAlgo.Robots
             OnBarInitialization();
 
             CheckOperationHours();
+
+            CheckSpread();
         }
         #endregion
 
@@ -452,6 +454,15 @@ namespace cAlgo.Robots
                 Print("Maximum Risk Per Trade must be a percentage between 0 and 100");
                 return;
             }
+        }
+
+        #endregion
+
+        #region Check Spread
+        private void CheckSpread()
+        {
+            _isSpreadOK = false;
+            if (Math.Round(Symbol.Spread / Symbol.PipSize, 2) <= MaxSpread) _isSpreadOK = true;
         }
 
         #endregion
