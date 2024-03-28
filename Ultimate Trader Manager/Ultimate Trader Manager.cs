@@ -408,6 +408,8 @@ namespace cAlgo.Robots
             CheckOperationHours();
 
             CheckSpread();
+
+            ScanOrders();
         }
         #endregion
 
@@ -458,15 +460,6 @@ namespace cAlgo.Robots
 
         #endregion
 
-        #region Check Spread
-        private void CheckSpread()
-        {
-            _isSpreadOK = false;
-            if (Math.Round(Symbol.Spread / Symbol.PipSize, 2) <= MaxSpread) _isSpreadOK = true;
-        }
-
-        #endregion
-
         #region OnBar Initialization 
         private void OnBarInitialization()
         {
@@ -485,6 +478,15 @@ namespace cAlgo.Robots
         }
         #endregion
 
+        #region Check Spread
+        private void CheckSpread()
+        {
+            _isSpreadOK = false;
+            if (Math.Round(Symbol.Spread / Symbol.PipSize, 2) <= MaxSpread) _isSpreadOK = true;
+        }
+
+        #endregion
+
         #region Check Operation Hours
         private void CheckOperationHours()
         {
@@ -499,6 +501,21 @@ namespace cAlgo.Robots
             if (TradingHourStart == TradingHourEnd && Server.Time.Hour == TradingHourStart) _isOperatingHours = true;
             if (TradingHourStart < TradingHourEnd && Server.Time.Hour >= TradingHourStart && Server.Time.Hour <= TradingHourEnd) _isOperatingHours = true;
             if (TradingHourStart > TradingHourEnd && ((Server.Time.Hour >= TradingHourStart && Server.Time.Hour <= 23) || (Server.Time.Hour <= TradingHourEnd && Server.Time.Hour >= 0))) _isOperatingHours = true;
+        }
+        #endregion
+
+        #region Scan Orders
+        private void ScanOrders()
+        {
+            foreach (var position in Positions)
+            {
+                if (position.SymbolName != SymbolName) continue;
+                if (position.Label != OrderComment) continue;
+                if (position.TradeType == TradeType.Buy) _totalOpenBuy++;
+                if (position.TradeType == TradeType.Sell) _totalOpenSell++;
+
+                _totalOpenOrders++;
+            }
         }
         #endregion
 
