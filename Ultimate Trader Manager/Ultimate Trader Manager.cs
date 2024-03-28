@@ -40,8 +40,8 @@ namespace cAlgo.Robots
             Trend_MA,
             Trend_MA_MTF,
             HHLL,
-            RSIReversion,
-            ADRReversion
+            RSIMeanReversion,
+            ADRReversal
         }
 
         public enum RiskBase
@@ -69,7 +69,8 @@ namespace cAlgo.Robots
             TP_None,
             TP_Fixed,
             TP_Auto_ADR,
-            TP_Auto_RRR
+            TP_Auto_RRR,
+            TP_Multi
         };
 
         public enum TrailingMode
@@ -159,6 +160,9 @@ namespace cAlgo.Robots
         [Parameter("Use Pyramids for TP", Group = "TRADE MANAGEMENT", DefaultValue = false)]
         public bool DoPyramidsTrading { get; set; }
 
+        [Parameter("Stop Bot On Equity Target", Group = "TRADE MANAGEMENT", DefaultValue = false)]
+        public bool IsStopOnEquityTarget { get; set; }
+
         [Parameter("Equity Target", Group = "TRADE MANAGEMENT", DefaultValue = 100000)]
         public double EquityTarget { get; set; }
 
@@ -229,9 +233,6 @@ namespace cAlgo.Robots
 
         [Parameter("RSI OBLevel", Group = "INDICATOR SETTINGS", DefaultValue = 70)]
         public int OBLevel { get; set; }
-
-        [Parameter("RSI Source", Group = "INDICATOR SETTINGS")]
-        public DataSeries RSIAppliedPrice { get; set; }
 
         [Parameter("Min Acceleration Factor", Group = "Parabolic SAR", DefaultValue = 0.02, MinValue = 0, Step = 0.01)]
         public double MinAccFactor { get; set; }
@@ -309,7 +310,7 @@ namespace cAlgo.Robots
         private TextBlock ShowHeader, ShowADR, ShowCurrentADR, ShowADRPercent, ShowDrawdown, ShowLotsInfo, ShowTradesInfo, ShowTargetInfo, ShowSpread, ShowNextBuy, ShowNextSell, ShowHT;
         private Grid PanelGrid;
 
-        private bool _isPreChecksOk, _isSpreadOK, _isOperatingHours, _isUpSwingLTF, _isUpSwing, _isUpSwingHTF, _switchedToBullish, _switchedToBearish;
+        private bool _isPreChecksOk, _isSpreadOK, _isOperatingHours, _isUpSwingLTF, _isUpSwing, _isUpSwingHTF, _switchedToBullish, _switchedToBearish, _rsiBullishTrigger, _rsiBearishTrigger;
         private int  _totalOpenOrders, _totalOpenBuy, _totalOpenSell, _signalEntry, _signalExit;
         private double _gridDistanceBuy, _gridDistanceSell, _atr, _adrCurrent, _adrOverall, _adrPercent, _nextBuyCostAveLevel, _nextSellCostAveLevel,
                         _nextBuyPyAddLevel, _nextSellPyrAddLevel, _PyramidSellStopLoss, _PyramidBuyStopLoss,
@@ -358,7 +359,7 @@ namespace cAlgo.Robots
             _adrOverall = 0;
 
             _williamsPctR = Indicators.WilliamsPctR(WPRPeriod);
-            _rsi = Indicators.RelativeStrengthIndex(RSIAppliedPrice, RSIPeriod);
+            _rsi = Indicators.RelativeStrengthIndex(_higherTimeframeBars.ClosePrices, RSIPeriod);
             _averageTrueRange = Indicators.AverageTrueRange(_dailyBars, ADRPeriod, MAType);
             parabolicSAR = Indicators.ParabolicSAR(MinAccFactor, MaxAccFactor);
 
@@ -368,8 +369,8 @@ namespace cAlgo.Robots
             _ltffastMA = Indicators.MovingAverage(_lowerTimeframeBars.ClosePrices, PeriodFastMA, MAType);
             _ltfslowMA = Indicators.MovingAverage(_lowerTimeframeBars.ClosePrices, PeriodSlowMA, MAType);
 
-            _htffastMA = Indicators.MovingAverage(MarketData.GetBars(HigherTimeframe).ClosePrices, PeriodFastMA, MAType);
-            _htfslowMA = Indicators.MovingAverage(MarketData.GetBars(HigherTimeframe).ClosePrices, PeriodSlowMA, MAType);
+            _htffastMA = Indicators.MovingAverage(_higherTimeframeBars.ClosePrices, PeriodFastMA, MAType);
+            _htfslowMA = Indicators.MovingAverage(_higherTimeframeBars.ClosePrices, PeriodSlowMA, MAType);
 
             _highestHigh = Bars.HighPrices.Last(2);
             _lowestHigh = Bars.HighPrices.Last(2);
@@ -391,6 +392,9 @@ namespace cAlgo.Robots
 
             _switchedToBullish = false;
             _switchedToBearish = false;
+
+            _rsiBullishTrigger = false;
+            _rsiBearishTrigger = false;
 
             _recoverySTR = "Recovery";
             _pyramidSTR = "Pyramid";
@@ -425,6 +429,9 @@ namespace cAlgo.Robots
             CheckSpread();
 
             ScanOrders();
+
+            // Strategy Specific 
+            RSIReversion();
 
             EvaluateEntry();
 
@@ -579,12 +586,14 @@ namespace cAlgo.Robots
                 if (totalBuyPips > DefaultTakeProfit * _totalOpenBuy) _signalExit = 1;
                 if (totalSellPips > DefaultTakeProfit * _totalOpenSell) _signalExit = -1;
             }
-            else
+
+            if (MyTrailingMode == TrailingMode.TL_None)
             {
                 if (totalBuyPips > DefaultTakeProfit) _signalExit = 1;
                 if (totalSellPips > DefaultTakeProfit) _signalExit = -1;
             }
-            if (Account.Equity > EquityTarget) _signalExit = 2;
+
+            if (IsStopOnEquityTarget && Account.Equity > EquityTarget) _signalExit = 2;
         }
         #endregion
 
@@ -697,21 +706,23 @@ namespace cAlgo.Robots
                         _signalEntry = -1;
                 }
 
-               /* if (MyAutoStrategyName == AutoStrategyName.HHLL_MTF)
-                {
-                    if (IsHTFBullish() && IsMTFBullish() && IsLTFBullish() && _switchedToBullish && _williamsPctR.Result.Last(1) > -20) _signalEntry = 1;
+                /* if (MyAutoStrategyName == AutoStrategyName.HHLL_MTF)
+                 {
+                     if (IsHTFBullish() && IsMTFBullish() && IsLTFBullish() && _switchedToBullish && _williamsPctR.Result.Last(1) > -20) _signalEntry = 1;
 
-                    if (!IsHTFBullish() && !IsMTFBullish() && !IsLTFBullish() && _switchedToBearish && _williamsPctR.Result.Last(1) < -80) _signalEntry = -1;
-                }
+                     if (!IsHTFBullish() && !IsMTFBullish() && !IsLTFBullish() && _switchedToBearish && _williamsPctR.Result.Last(1) < -80) _signalEntry = -1;
+                 } */
 
-                if (MyAutoStrategyName == AutoStrategyName.RSIReversion)
+                if (MyAutoStrategyName == AutoStrategyName.RSIMeanReversion)
                 {
-                    if (_rsi.Result.Last(1) >= OSLevel && _rsi.Result.Last(2) < OSLevel)
+                   // if (_rsi.Result.Last(1) >= OSLevel && _rsi.Result.Last(2) < OSLevel)
+                   if (_rsiBullishTrigger && Bars.ClosePrices.LastValue > _slowMA.Result.LastValue)
                         _signalEntry = 1;
 
-                    if (_rsi.Result.Last(1) <= OBLevel && _rsi.Result.Last(2) > OBLevel)
+                    // if (_rsi.Result.Last(1) <= OBLevel && _rsi.Result.Last(2) > OBLevel)
+                    if (_rsiBearishTrigger && Bars.ClosePrices.LastValue < _slowMA.Result.LastValue)
                         _signalEntry = -1;
-                } */
+                } 
 
             }
 
@@ -826,9 +837,34 @@ namespace cAlgo.Robots
         }
         #endregion
 
-        #region Helper Functions
-        #region Lot Size Calculate
-        private double LotSizeCalculate()
+        #region Strategy Specific functions
+        private void RSIReversion()
+        {
+            if (_rsi.Result.LastValue < OSLevel)
+            {
+                _rsiBullishTrigger = true;
+                _rsiBearishTrigger = false;
+            }
+            else if (_rsi.Result.LastValue > OBLevel)
+            {
+                _rsiBullishTrigger = false;
+                _rsiBearishTrigger = true;
+            }
+            else 
+            {
+                 _rsiBearishTrigger = false;
+                 _rsiBullishTrigger = false;
+            }
+            
+
+
+        }
+
+            #endregion
+
+            #region Helper Functions
+            #region Lot Size Calculate
+            private double LotSizeCalculate()
         {
             double RiskBaseAmount = 0;
             double _lotSize = DefaultLotSize;
