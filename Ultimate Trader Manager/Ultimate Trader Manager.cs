@@ -219,9 +219,6 @@ namespace cAlgo.Robots
         [Parameter("MA Type", Group = "INDICATOR SETTINGS", DefaultValue = MovingAverageType.Weighted)]
         public MovingAverageType MAType { get; set; }
 
-        [Parameter("MA Source", Group = "INDICATOR SETTINGS")]
-        public DataSeries SourceSeries { get; set; }
-
         [Parameter("WPRPeriod", Group = "INDICATOR SETTINGS", DefaultValue = 5)]
         public int WPRPeriod { get; set; }
 
@@ -307,11 +304,11 @@ namespace cAlgo.Robots
         private TextBlock ShowHeader, ShowADR, ShowCurrentADR, ShowADRPercent, ShowDrawdown, ShowLotsInfo, ShowTradesInfo, ShowTargetInfo, ShowSpread, ShowNextBuy, ShowNextSell, ShowHT;
         private Grid PanelGrid;
 
-        private bool _isPreChecksOk, _isSpreadOK, _isOperatingHours, _isUpSwingLTF, _isUpSwingMTF, _isUpSwingHTF, _switchedToBullish, _switchedToBearish;
+        private bool _isPreChecksOk, _isSpreadOK, _isOperatingHours, _isUpSwingLTF, _isUpSwing, _isUpSwingHTF, _switchedToBullish, _switchedToBearish;
         private int  _totalOpenOrders, _totalOpenBuy, _totalOpenSell, _signalEntry, _signalExit;
         private double _gridDistanceBuy, _gridDistanceSell, _atr, _adrCurrent, _adrOverall, _adrPercent, _nextBuyCostAveLevel, _nextSellCostAveLevel,
                         _nextBuyPyAddLevel, _nextSellPyrAddLevel, _PyramidSellStopLoss, _PyramidBuyStopLoss,
-                       _highestHighLTF, _lowestHighLTF, _highestLowLTF, _lowestLowLTF, _highestHighMTF, _lowestHighMTF, _highestLowMTF, _lowestLowMTF,
+                       _highestHighLTF, _lowestHighLTF, _highestLowLTF, _lowestLowLTF, _highestHigh, _lowestHigh, _highestLow, _lowestLow,
                        _highestHighHTF, _lowestHighHTF, _highestLowHTF, _lowestLowHTF, WhenToTrailPrice;
         double[] HTBarHigh, HTBarLow, HTBarClose, HTBarOpen, LTBarHigh, LTBarLow, LTBarClose, LTBarOpen = new double[5];
         int HTOldNumBars = 0, LTOldNumBars = 0;
@@ -345,6 +342,54 @@ namespace cAlgo.Robots
             CheckPreChecks();
 
             if (!_isPreChecksOk) Stop();
+
+            _dailyBars = MarketData.GetBars(TimeFrame.Daily);
+            _lowerTimeframeBars = MarketData.GetBars(LowerTimeframe);
+            _higherTimeframeBars = MarketData.GetBars(HigherTimeframe);
+
+            _adrCurrent = 0;
+            _adrPercent = 0;
+            _adrOverall = 0;
+
+            _williamsPctR = Indicators.WilliamsPctR(WPRPeriod);
+            _rsi = Indicators.RelativeStrengthIndex(RSIAppliedPrice, RSIPeriod);
+            _averageTrueRange = Indicators.AverageTrueRange(_dailyBars, ADRPeriod, MAType);
+
+            _fastMA = Indicators.MovingAverage(Bars.ClosePrices, PeriodFastMA, MAType);
+            _slowMA = Indicators.MovingAverage(Bars.ClosePrices, PeriodSlowMA, MAType);
+
+            _ltffastMA = Indicators.MovingAverage(_lowerTimeframeBars.ClosePrices, PeriodFastMA, MAType);
+            _ltfslowMA = Indicators.MovingAverage(_lowerTimeframeBars.ClosePrices, PeriodSlowMA, MAType);
+
+            _htffastMA = Indicators.MovingAverage(MarketData.GetBars(HigherTimeframe).ClosePrices, PeriodFastMA, MAType);
+            _htfslowMA = Indicators.MovingAverage(MarketData.GetBars(HigherTimeframe).ClosePrices, PeriodSlowMA, MAType);
+
+            _highestHigh = Bars.HighPrices.Last(2);
+            _lowestHigh = Bars.HighPrices.Last(2);
+            _highestLow = Bars.LowPrices.Last(2);
+            _lowestLow = Bars.LowPrices.Last(2);
+            _isUpSwing = false;
+
+            _highestHighLTF = _lowerTimeframeBars.HighPrices.Last(2);
+            _lowestHighLTF = _lowerTimeframeBars.HighPrices.Last(2);
+            _highestLowLTF = _lowerTimeframeBars.LowPrices.Last(2);
+            _lowestLowLTF = _lowerTimeframeBars.LowPrices.Last(2);
+            _isUpSwingLTF = false;
+
+            _highestHighHTF = _higherTimeframeBars.HighPrices.Last(2);
+            _lowestHighHTF = _higherTimeframeBars.HighPrices.Last(2);
+            _highestLowHTF = _higherTimeframeBars.LowPrices.Last(2);
+            _lowestLowHTF = _higherTimeframeBars.LowPrices.Last(2);
+            _isUpSwingHTF = false;
+
+            _switchedToBullish = false;
+            _switchedToBearish = false;
+
+            _recoverySTR = "Recovery";
+            _pyramidSTR = "Pyramid";
+
+            OrderComment = BotLabel + MyAutoStrategyName.ToString();
+
         }
         #endregion
 
