@@ -728,21 +728,35 @@ namespace cAlgo.Robots
 
                 if (MyAutoStrategyName == AutoStrategyName.Trend_MA_MTF)
                 {
-                    bool validBuy = DigitsToPips(Symbol.Ask - _lastSwingLow) < DefaultStopLoss;
-                    bool validSell = DigitsToPips(Symbol.Bid - _lastSwingLow) < DefaultStopLoss;
+                    bool validBuy = DigitsToPips(Symbol.Ask - _lastSwingLow) < CostAveDistance;
+                    bool validSell = DigitsToPips(_lastSwingHigh - Symbol.Bid) < CostAveDistance;
                     if (validBuy &&
-                        _williamsPctR.Result.LastValue > -20 &&
-                        _fastMA.Result.LastValue       > _slowMA.Result.LastValue    &&
-                        _ltffastMA.Result.LastValue    > _ltfslowMA.Result.LastValue &&
-                        _htffastMA.Result.LastValue    > _htfslowMA.Result.LastValue)
+                       // _williamsPctR.Result.LastValue > -20 &&
+                        _fastMA.Result.LastValue > _slowMA.Result.LastValue &&
+                        _ltffastMA.Result.Last(1) < _ltfslowMA.Result.Last(1) &&
+                        _ltffastMA.Result.LastValue > _ltfslowMA.Result.LastValue &&
+                        _htffastMA.Result.LastValue > _htfslowMA.Result.LastValue)
+                    {
                         _signalEntry = 1;
+                        foreach (var position in Positions.Where(p => p.SymbolName == SymbolName && p.Label == OrderComment && p.TradeType == TradeType.Sell))
+                        {
+                            if (position.GrossProfit > 0) ClosePosition(position); 
+                        }
+                    }
 
-                    if (validBuy && 
-                        _williamsPctR.Result.LastValue < -80 &&
+                    if (validBuy &&
+                        //_williamsPctR.Result.LastValue < -80 &&
                         _fastMA.Result.LastValue < _slowMA.Result.LastValue &&
-                        _ltffastMA.Result.LastValue < _ltfslowMA.Result.LastValue &&
+                        _ltffastMA.Result.Last(1) > _ltfslowMA.Result.Last(1) &&
+                         _ltffastMA.Result.LastValue < _ltfslowMA.Result.LastValue &&
                         _htffastMA.Result.LastValue < _htfslowMA.Result.LastValue)
+                    {
                         _signalEntry = -1;
+                        foreach (var position in Positions.Where(p => p.SymbolName == SymbolName && p.Label == OrderComment && p.TradeType == TradeType.Buy))
+                        {
+                            if (position.GrossProfit > 0) ClosePosition(position);
+                        }
+                    }
                 }
 
                  if (MyAutoStrategyName == AutoStrategyName.HHLL_MTF)
