@@ -39,7 +39,7 @@ namespace cAlgo.Robots
         {
             Trend_MA,
             Trend_MA_MTF,
-            HHLL,
+            HHLL_MTF,
             RSIMeanReversion,
             ADRReversal
         }
@@ -100,18 +100,18 @@ namespace cAlgo.Robots
         [Parameter("Trading Mode", Group = "STRATEGY", DefaultValue = TradingMode.Both)]
         public TradingMode MyTradingMode { get; set; }
 
-        [Parameter("Auto Strategy Name", Group = "STRATEGY", DefaultValue = AutoStrategyName.Trend_MA_MTF)]
+        [Parameter("Auto Strategy Name", Group = "STRATEGY", DefaultValue = AutoStrategyName.Trend_MA)]
         public AutoStrategyName MyAutoStrategyName { get; set; }
         #endregion
 
         #region Trading Hours
-        [Parameter("Use Trading Hours", Group = "TRADING HOURS", DefaultValue = false)]
+        [Parameter("Use Trading Hours", Group = "TRADING HOURS", DefaultValue = true)]
         public bool UseTradingHours { get; set; }
 
-        [Parameter("Starting Hour", Group = "TRADING HOURS", DefaultValue = 09)]
+        [Parameter("Starting Hour", Group = "TRADING HOURS", DefaultValue = 02)]
         public int TradingHourStart { get; set; }
 
-        [Parameter("Ending Hour", Group = "TRADING HOURS", DefaultValue = 18)]
+        [Parameter("Ending Hour", Group = "TRADING HOURS", DefaultValue = 23)]
         public int TradingHourEnd { get; set; }
         #endregion
 
@@ -705,38 +705,36 @@ namespace cAlgo.Robots
             {
                 if (MyAutoStrategyName == AutoStrategyName.Trend_MA)
                 {
-                    if (_fastMA.Result.LastValue > _slowMA.Result.LastValue &&
-                        _williamsPctR.Result.Last(2) < -80 && _williamsPctR.Result.Last(1) > -80)
+                    if (_williamsPctR.Result.LastValue  > -20 &&
+                        _fastMA.Result.LastValue        > _slowMA.Result.LastValue)
                         _signalEntry = 1;
 
-                    if (_fastMA.Result.LastValue < _slowMA.Result.LastValue &&
-                         _williamsPctR.Result.Last(2) > -20 && _williamsPctR.Result.Last(1) < -20)
+                    if (_williamsPctR.Result.LastValue < -80 &&
+                        _fastMA.Result.LastValue       < _slowMA.Result.LastValue)
                         _signalEntry = -1;
                 } 
 
                 if (MyAutoStrategyName == AutoStrategyName.Trend_MA_MTF)
                 {
-                    if (_fastMA.Result.Last(2)    < _slowMA.Result.Last(2)        &&
-                        _fastMA.Result.Last(1) > _slowMA.Result.Last(1)           &&
-                        _ltffastMA.Result.LastValue > _ltfslowMA.Result.LastValue &&
-                        _htffastMA.Result.LastValue > _htfslowMA.Result.LastValue &&
-                        _williamsPctR.Result.LastValue > -20)
+                    if (_williamsPctR.Result.LastValue > -20 &&
+                        _fastMA.Result.LastValue       > _slowMA.Result.LastValue    &&
+                        _ltffastMA.Result.LastValue    > _ltfslowMA.Result.LastValue &&
+                        _htffastMA.Result.LastValue    > _htfslowMA.Result.LastValue)
                         _signalEntry = 1;
 
-                    if (_fastMA.Result.Last(2) > _slowMA.Result.Last(2) &&
-                        _fastMA.Result.Last(1) < _slowMA.Result.Last(1) &&
+                    if (_williamsPctR.Result.LastValue < -80 &&
+                        _fastMA.Result.LastValue < _slowMA.Result.LastValue &&
                         _ltffastMA.Result.LastValue < _ltfslowMA.Result.LastValue &&
-                        _htffastMA.Result.LastValue < _htfslowMA.Result.LastValue &&
-                         _williamsPctR.Result.LastValue < -80)
+                        _htffastMA.Result.LastValue < _htfslowMA.Result.LastValue)
                         _signalEntry = -1;
                 }
 
-                /* if (MyAutoStrategyName == AutoStrategyName.HHLL_MTF)
+                 if (MyAutoStrategyName == AutoStrategyName.HHLL_MTF)
                  {
-                     if (IsHTFBullish() && IsMTFBullish() && IsLTFBullish() && _switchedToBullish && _williamsPctR.Result.Last(1) > -20) _signalEntry = 1;
+                     if (IsHTFBullish() && IsBullish() && IsLTFBullish() && _switchedToBullish && _williamsPctR.Result.Last(1) > -20) _signalEntry = 1;
 
-                     if (!IsHTFBullish() && !IsMTFBullish() && !IsLTFBullish() && _switchedToBearish && _williamsPctR.Result.Last(1) < -80) _signalEntry = -1;
-                 } */
+                     if (!IsHTFBullish() && !IsBullish() && !IsLTFBullish() && _switchedToBearish && _williamsPctR.Result.Last(1) < -80) _signalEntry = -1;
+                 } 
 
                 if (MyAutoStrategyName == AutoStrategyName.RSIMeanReversion)
                 {
@@ -782,7 +780,7 @@ namespace cAlgo.Robots
             if (MyPositionSizeMode == PositionSizeMode.Risk_Fixed) _volumeInUnits = Symbol.QuantityToVolumeInUnits(DefaultLotSize);
             if (MyPositionSizeMode == PositionSizeMode.Risk_Auto) _volumeInUnits = LotSizeCalculate();
 
-            if (_signalEntry == 1 && _totalOpenBuy <= MaxBuyPositions)
+            if (_signalEntry == 1 && _totalOpenBuy <= MaxPositions && _totalOpenBuy <= MaxBuyPositions)
             {
                 if (_totalOpenBuy > 0 && AutoTradeManagement)
                 {
@@ -793,11 +791,8 @@ namespace cAlgo.Robots
                         else
                         {
                             Print("Position with ID " + result.Position.Id + " was opened");
-                            if (AutoTradeManagement)
-                            {
-                                _nextBuyCostAveLevel = Symbol.Ask - PipsToDigits(CostAveDistance);
-                                _nextBuyPyAddLevel = Symbol.Ask + PipsToDigits(PyramidDistance);
-                            }
+                            _nextBuyCostAveLevel = Symbol.Ask - PipsToDigits(CostAveDistance);
+                            _nextBuyPyAddLevel = Symbol.Ask + PipsToDigits(PyramidDistance);
                         }
                     }
 
@@ -810,18 +805,14 @@ namespace cAlgo.Robots
                     else
                     {
                         Print("Position with ID " + result.Position.Id + " was opened");
-                        if (AutoTradeManagement)
-                        {
-                            _nextBuyCostAveLevel = Symbol.Ask - PipsToDigits(CostAveDistance);
-                            _nextBuyPyAddLevel = Symbol.Ask + PipsToDigits(PyramidDistance);
-                        }
-
+                        _nextBuyCostAveLevel = Symbol.Ask - PipsToDigits(CostAveDistance);
+                        _nextBuyPyAddLevel = Symbol.Ask + PipsToDigits(PyramidDistance);
                     }
                 }
 
             }
 
-                if (_signalEntry == -1 && _totalOpenSell <= MaxSellPositions)
+                if (_signalEntry == -1 && _totalOpenSell <= MaxPositions && _totalOpenSell <= MaxSellPositions)
                 {
                     if (_totalOpenSell > 0 && AutoTradeManagement)
                     {
@@ -832,11 +823,8 @@ namespace cAlgo.Robots
                             else
                             {
                                 Print("Position with ID " + result.Position.Id + " was opened");
-                                if (AutoTradeManagement)
-                                {
-                                    _nextSellCostAveLevel = Symbol.Bid + PipsToDigits(CostAveDistance);
-                                    _nextSellPyrAddLevel = Symbol.Bid - PipsToDigits(PyramidDistance);
-                                }
+                                _nextSellCostAveLevel = Symbol.Bid + PipsToDigits(CostAveDistance);
+                                _nextSellPyrAddLevel = Symbol.Bid - PipsToDigits(PyramidDistance);
                             }
                         }
                     }
@@ -848,11 +836,8 @@ namespace cAlgo.Robots
                         else
                         {
                             Print("Position with ID " + result.Position.Id + " was opened");
-                            {
-                                _nextSellCostAveLevel = Symbol.Bid + PipsToDigits(CostAveDistance);
-                                _nextSellPyrAddLevel = Symbol.Bid - PipsToDigits(PyramidDistance);
-                            }
-
+                            _nextSellCostAveLevel = Symbol.Bid + PipsToDigits(CostAveDistance);
+                            _nextSellPyrAddLevel = Symbol.Bid - PipsToDigits(PyramidDistance);
                         }
                     }
                 }
@@ -863,6 +848,8 @@ namespace cAlgo.Robots
         #endregion
 
         #region Strategy Specific functions
+
+        #region RSI Reversion Strategy
         private void RSIReversion()
         {
             if (_rsi.Result.LastValue < OSLevel)
@@ -880,16 +867,122 @@ namespace cAlgo.Robots
                  _rsiBearishTrigger = false;
                  _rsiBullishTrigger = false;
             }
-            
-
-
         }
+        #endregion
 
-            #endregion
+        #region Current Bullish
+        private bool IsBullish()
+        {
+            double openPrice = Bars.OpenPrices.Last(1);
+            double closePrice = Bars.ClosePrices.Last(1);
+            double highPrice = Bars.HighPrices.Last(1);
+            double lowPrice = Bars.LowPrices.Last(1);
 
-            #region Helper Functions
-            #region Lot Size Calculate
-            private double LotSizeCalculate()
+            if (_isUpSwing)
+            {
+                if (lowPrice > _highestLow)
+                {
+                    _highestLow = lowPrice;
+                    _switchedToBullish = false;
+                    _switchedToBearish = false;
+                }
+                if (highPrice < _highestLow)
+                {
+                    _isUpSwing = false;
+                    _lowestHigh = highPrice;
+                    _switchedToBullish = false;
+                    _switchedToBearish = true;
+                }
+            }
+            else
+            {
+                if (highPrice < _lowestHigh)
+                {
+                    _lowestHigh = highPrice;
+                    _switchedToBullish = false;
+                    _switchedToBearish = false;
+                }
+                if (lowPrice > _lowestHigh)
+                {
+                    _isUpSwing = true;
+                    _highestLow = lowPrice;
+                    _switchedToBullish = true;
+                    _switchedToBearish = false;
+                }
+            }
+            return _isUpSwing;
+        }
+        #endregion
+
+        #region LTF Bullish
+        private bool IsLTFBullish()
+        {
+            double openPriceLTF = MarketData.GetBars(LowerTimeframe).OpenPrices.Last(1);
+            double closePriceLTF = MarketData.GetBars(LowerTimeframe).ClosePrices.Last(1);
+            double highPriceLTF = MarketData.GetBars(LowerTimeframe).HighPrices.Last(1);
+            double lowPriceLTF = MarketData.GetBars(LowerTimeframe).LowPrices.Last(1);
+
+            if (_isUpSwingLTF)
+            {
+                if (lowPriceLTF > _highestLowLTF) _highestLowLTF = lowPriceLTF;
+                if (highPriceLTF < _highestLowLTF)
+                {
+                    _isUpSwingLTF = false;
+                    _lowestHighLTF = highPriceLTF;  
+                }
+            }
+            else
+            {
+                if (highPriceLTF < _lowestHighLTF) _lowestHighLTF = highPriceLTF;
+
+                if (lowPriceLTF > _lowestHighLTF)
+                {
+                    _isUpSwingLTF = true;
+                    _highestLowLTF = lowPriceLTF;
+                }
+            }
+            return _isUpSwingLTF;
+        }
+        #endregion  
+
+        #region HTF Bullish
+        private bool IsHTFBullish()
+        {
+
+            double openPriceHTF = MarketData.GetBars(HigherTimeframe).OpenPrices.Last(1);
+            double closePriceHTF = MarketData.GetBars(HigherTimeframe).ClosePrices.Last(1);
+            double highPriceHTF = MarketData.GetBars(HigherTimeframe).HighPrices.Last(1);
+            double lowPriceHTF = MarketData.GetBars(HigherTimeframe).LowPrices.Last(1);
+
+            if (_isUpSwingHTF)
+            {
+                if (lowPriceHTF > _highestLowHTF) _highestLowHTF = lowPriceHTF;
+                if (highPriceHTF < _highestLowHTF)
+                {
+                    _isUpSwingHTF = false;
+                    _lowestHighHTF = highPriceHTF;
+                }
+            }
+            else
+            {
+                if (highPriceHTF < _lowestHighHTF) _lowestHighHTF = highPriceHTF;
+                if (lowPriceHTF > _lowestHighHTF)
+                {
+                    _isUpSwingHTF = true;
+                    _highestLowHTF = lowPriceHTF;
+                }
+            }
+
+
+            return _isUpSwingHTF;
+        }
+        #endregion
+ 
+        #endregion
+
+        #region Helper Functions
+        #region Lot Size Calculate
+        private double LotSizeCalculate()
         {
             double RiskBaseAmount = 0;
             double _lotSize = DefaultLotSize;
@@ -1035,13 +1128,13 @@ namespace cAlgo.Robots
             grid.Columns[1].SetWidthInPixels(3);
             buystoplimitbutton = new ToggleButton
             {
-                Text = "Buy Stop/Limit",
+                Text = "BUY - Stop/Limit",
                 Style = Styles.BuyButtonStyle()
             };
 
             sellstoplimitbutton = new ToggleButton
             {
-                Text = "Sell Stop/Limit",
+                Text = "SELL - Stop/Limit",
                 Style = Styles.SellButtonStyle()
             };
 
