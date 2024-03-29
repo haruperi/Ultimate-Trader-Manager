@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection.Emit;
 using System.Text;
 using cAlgo.API;
 using cAlgo.API.Collections;
@@ -303,14 +304,9 @@ namespace cAlgo.Robots
         #endregion
 
         #region Global variables
-        private const string HowToUseText = "How to use:\nCtrl + Left Mouse Button - Draw Breakout line\nShift + Left Mouse Button - Draw Retracement line";
-        private const string HowToUseObjectName = "LinesTraderText";
-
-        //private SignalLineDrawManager DrawManager { get; set; }
-        //private SignalLineRepository SignalLineRepository { get; set; }
 
         private StackPanel contentPanel;
-        private TextBlock ShowHeader, ShowADR, ShowCurrentADR, ShowADRPercent, ShowDrawdown, ShowLotsInfo, ShowTradesInfo, ShowTargetInfo, ShowSpread, ShowNextBuy, ShowNextSell, ShowHT;
+        private TextBlock ShowHeader, ShowADR, ShowCurrentADR, ShowADRPercent, ShowDrawdown, ShowLotsInfo, ShowTradesInfo, ShowTargetInfo, ShowSpread;
         private Grid PanelGrid;
         private ToggleButton buystoplimitbutton, sellstoplimitbutton;
         private Color hColour;
@@ -321,7 +317,7 @@ namespace cAlgo.Robots
         private double _gridDistanceBuy, _gridDistanceSell, _atr, _adrCurrent, _adrOverall, _adrPercent, _nextBuyCostAveLevel, _nextSellCostAveLevel,
                         _nextBuyPyAddLevel, _nextSellPyrAddLevel, _PyramidSellStopLoss, _PyramidBuyStopLoss,
                        _highestHighLTF, _lowestHighLTF, _highestLowLTF, _lowestLowLTF, _highestHigh, _lowestHigh, _highestLow, _lowestLow,
-                       _highestHighHTF, _lowestHighHTF, _highestLowHTF, _lowestLowHTF, WhenToTrailPrice;
+                       _highestHighHTF, _lowestHighHTF, _highestLowHTF, _lowestLowHTF, _lastSwingHigh, _lastSwingLow, _defaultSwingHigh, _defaultSwingLow, WhenToTrailPrice;
         double[] HTBarHigh, HTBarLow, HTBarClose, HTBarOpen, LTBarHigh, LTBarLow, LTBarClose, LTBarOpen = new double[5];
         int HTOldNumBars = 0, LTOldNumBars = 0;
         bool _isRecoveryTrade, _isPyramidTrade;
@@ -360,6 +356,10 @@ namespace cAlgo.Robots
             _adrCurrent = 0;
             _adrPercent = 0;
             _adrOverall = 0;
+            _defaultSwingHigh = 0.00001;
+            _defaultSwingLow = 100000;
+            _lastSwingHigh = _defaultSwingHigh;
+            _lastSwingLow = _defaultSwingLow;
 
             _williamsPctR = Indicators.WilliamsPctR(WPRPeriod);
             _rsi = Indicators.RelativeStrengthIndex(_higherTimeframeBars.ClosePrices, RSIPeriod);
@@ -429,10 +429,22 @@ namespace cAlgo.Robots
             ShowLotsInfo.Text = "Lots (Sym) (Max)  :  " + totalUsedLots;
             ShowTradesInfo.Text = "Trades (Sym) (Acc)  :  " + totalBotTrades;
             ShowTargetInfo.Text = "Equity Curr -> Targ  :  " + Account.Equity + " -> " + EquityTarget;
-            ShowNextBuy.Text = "Next Buy Min Level  :  " + _nextBuyCostAveLevel;
-            ShowNextSell.Text = "Next Sell Min Level  :  " + _nextSellCostAveLevel;
 
+            if (AutoTradeManagement)
+            {
+                Chart.DrawHorizontalLine("ShowNextBuy", _nextBuyCostAveLevel, "#7DDA58", 3, LineStyle.LinesDots);
+                Chart.DrawHorizontalLine("ShowNextSell", _nextSellCostAveLevel, "#E4080A", 3, LineStyle.LinesDots);
+            }
+
+            if(MyAutoStrategyName == AutoStrategyName.Trend_MA_MTF)
+            {
+                Chart.DrawHorizontalLine("ShowSwingHigh", _lastSwingHigh, "#5335E5", 2, LineStyle.DotsVeryRare);
+                Chart.DrawHorizontalLine("ShowSwingLow", _lastSwingLow, "#FC1D85", 1, LineStyle.DotsVeryRare);
+            }
+            
             CalculateADR();
+
+            CalculateSwingPoints();
 
             EvaluateExit();
 
@@ -716,13 +728,17 @@ namespace cAlgo.Robots
 
                 if (MyAutoStrategyName == AutoStrategyName.Trend_MA_MTF)
                 {
-                    if (_williamsPctR.Result.LastValue > -20 &&
+                    bool validBuy = DigitsToPips(Symbol.Ask - _lastSwingLow) < DefaultStopLoss;
+                    bool validSell = DigitsToPips(Symbol.Bid - _lastSwingLow) < DefaultStopLoss;
+                    if (validBuy &&
+                        _williamsPctR.Result.LastValue > -20 &&
                         _fastMA.Result.LastValue       > _slowMA.Result.LastValue    &&
                         _ltffastMA.Result.LastValue    > _ltfslowMA.Result.LastValue &&
                         _htffastMA.Result.LastValue    > _htfslowMA.Result.LastValue)
                         _signalEntry = 1;
 
-                    if (_williamsPctR.Result.LastValue < -80 &&
+                    if (validBuy && 
+                        _williamsPctR.Result.LastValue < -80 &&
                         _fastMA.Result.LastValue < _slowMA.Result.LastValue &&
                         _ltffastMA.Result.LastValue < _ltfslowMA.Result.LastValue &&
                         _htffastMA.Result.LastValue < _htfslowMA.Result.LastValue)
@@ -917,10 +933,10 @@ namespace cAlgo.Robots
         #region LTF Bullish
         private bool IsLTFBullish()
         {
-            double openPriceLTF = MarketData.GetBars(LowerTimeframe).OpenPrices.Last(1);
-            double closePriceLTF = MarketData.GetBars(LowerTimeframe).ClosePrices.Last(1);
-            double highPriceLTF = MarketData.GetBars(LowerTimeframe).HighPrices.Last(1);
-            double lowPriceLTF = MarketData.GetBars(LowerTimeframe).LowPrices.Last(1);
+            double openPriceLTF = _lowerTimeframeBars.OpenPrices.Last(1);
+            double closePriceLTF = _lowerTimeframeBars.ClosePrices.Last(1);
+            double highPriceLTF = _lowerTimeframeBars.HighPrices.Last(1);
+            double lowPriceLTF = _lowerTimeframeBars.LowPrices.Last(1);
 
             if (_isUpSwingLTF)
             {
@@ -949,10 +965,10 @@ namespace cAlgo.Robots
         private bool IsHTFBullish()
         {
 
-            double openPriceHTF = MarketData.GetBars(HigherTimeframe).OpenPrices.Last(1);
-            double closePriceHTF = MarketData.GetBars(HigherTimeframe).ClosePrices.Last(1);
-            double highPriceHTF = MarketData.GetBars(HigherTimeframe).HighPrices.Last(1);
-            double lowPriceHTF = MarketData.GetBars(HigherTimeframe).LowPrices.Last(1);
+            double openPriceHTF = _higherTimeframeBars.OpenPrices.Last(1);
+            double closePriceHTF = _higherTimeframeBars.ClosePrices.Last(1);
+            double highPriceHTF = _higherTimeframeBars.HighPrices.Last(1);
+            double lowPriceHTF = _higherTimeframeBars.LowPrices.Last(1);
 
             if (_isUpSwingHTF)
             {
@@ -1026,6 +1042,26 @@ namespace cAlgo.Robots
             _adrOverall = Math.Round(sum / ADRPeriod, 0);
             _adrCurrent = Math.Round((_dailyBars.HighPrices.LastValue - _dailyBars.LowPrices.LastValue) / Symbol.PipSize, 0);
             _adrPercent = Math.Round((1 - Math.Abs(_adrCurrent - _adrOverall) / _adrOverall) * 100, 0);
+        }
+        #endregion
+
+        #region Swing Points Calculations
+        private void CalculateSwingPoints()
+        {
+            double highPriceLTF = _lowerTimeframeBars.HighPrices.LastValue;
+            double lowPriceLTF = _lowerTimeframeBars.LowPrices.LastValue;
+
+            if (_ltffastMA.Result.LastValue > _ltfslowMA.Result.LastValue)
+            {
+                if (_ltffastMA.Result.Last(1) < _ltfslowMA.Result.Last(1)) _lastSwingHigh = _defaultSwingHigh;
+                if (_lastSwingHigh < highPriceLTF)                         _lastSwingHigh = highPriceLTF;
+            }
+
+            if (_ltffastMA.Result.LastValue < _ltfslowMA.Result.LastValue)
+            {
+                if (_ltffastMA.Result.Last(1) > _ltfslowMA.Result.Last(1)) _lastSwingLow = _defaultSwingLow;
+                if (_lastSwingLow > lowPriceLTF)                           _lastSwingLow = lowPriceLTF;
+            }
         }
         #endregion
 
@@ -1122,8 +1158,7 @@ namespace cAlgo.Robots
             ShowLotsInfo = new TextBlock { Style = Styles.TextBodyStyle() };
             ShowTradesInfo = new TextBlock { Style = Styles.TextBodyStyle() };
             ShowTargetInfo = new TextBlock { Style = Styles.TextBodyStyle() };
-            ShowNextBuy = new TextBlock { Style = Styles.TextBodyStyle() };
-            ShowNextSell = new TextBlock { Style = Styles.TextBodyStyle() };
+            
 
             grid.Columns[1].SetWidthInPixels(3);
             buystoplimitbutton = new ToggleButton
@@ -1147,10 +1182,8 @@ namespace cAlgo.Robots
             grid.AddChild(ShowLotsInfo, 6, 0);
             grid.AddChild(ShowTradesInfo, 7, 0);
             grid.AddChild(ShowTargetInfo, 8, 0);
-            grid.AddChild(ShowNextBuy, 9, 0);
-            grid.AddChild(ShowNextSell, 10, 0);
-            grid.AddChild(buystoplimitbutton, 11, 0, 1, 2);
-            grid.AddChild(sellstoplimitbutton, 12, 0, 1, 2);
+            grid.AddChild(buystoplimitbutton, 9, 0, 1, 2);
+            grid.AddChild(sellstoplimitbutton, 10, 0, 1, 2);
 
 
 
