@@ -277,14 +277,17 @@ namespace cAlgo.Robots
         #endregion
 
         #region Display Settings
-        [Parameter("Show Objects", Group = "DISPLAY SETTINGS", DefaultValue = true)]
-        public bool ShowObjects { get; set; }
+        [Parameter("LineStyle", Group = "DISPLAY SETTINGS", DefaultValue = LineStyle.Solid)]
+        public LineStyle HLineStyle { get; set; }
 
-        [Parameter("FontSize", Group = "DISPLAY SETTINGS", DefaultValue = 12)]
-        public int FontSize { get; set; }
+        [Parameter("Thickness", Group = "DISPLAY SETTINGS", DefaultValue = 1)]
+        public int HLineThickness { get; set; }
 
-        [Parameter("Space to Corner", Group = "DISPLAY SETTINGS", DefaultValue = 10)]
-        public int MarginSpace { get; set; }
+        [Parameter("Color", Group = "DISPLAY SETTINGS", DefaultValue = "DarkGoldenrod")]
+        public string HLineColor { get; set; }
+
+        [Parameter("Transparency", Group = "DISPLAY SETTINGS", DefaultValue = 60, MinValue = 1, MaxValue = 100)]
+        public int HLineTransparency { get; set; }
 
         [Parameter("Horizontal Alignment", Group = "DISPLAY SETTINGS", DefaultValue = HorizontalAlignment.Left)]
         public HorizontalAlignment PanelHorizontalAlignment { get; set; }
@@ -306,11 +309,14 @@ namespace cAlgo.Robots
         //private SignalLineDrawManager DrawManager { get; set; }
         //private SignalLineRepository SignalLineRepository { get; set; }
 
-        private StackPanel DisplayPanel;
+        private StackPanel contentPanel;
         private TextBlock ShowHeader, ShowADR, ShowCurrentADR, ShowADRPercent, ShowDrawdown, ShowLotsInfo, ShowTradesInfo, ShowTargetInfo, ShowSpread, ShowNextBuy, ShowNextSell, ShowHT;
         private Grid PanelGrid;
+        private ToggleButton buystoplimitbutton, sellstoplimitbutton;
+        private Color hColour;
+        private ChartHorizontalLine HorizontalLine;
 
-        private bool _isPreChecksOk, _isSpreadOK, _isOperatingHours, _isUpSwingLTF, _isUpSwing, _isUpSwingHTF, _switchedToBullish, _switchedToBearish, _rsiBullishTrigger, _rsiBearishTrigger;
+        private bool _isPreChecksOk, _isSpreadOK, _isOperatingHours, _isUpSwingLTF, _isUpSwing, _isUpSwingHTF, _switchedToBullish, _switchedToBearish, _rsiBullishTrigger, _rsiBearishTrigger, buySLbool, sellSLbool;
         private int  _totalOpenOrders, _totalOpenBuy, _totalOpenSell, _signalEntry, _signalExit;
         private double _gridDistanceBuy, _gridDistanceSell, _atr, _adrCurrent, _adrOverall, _adrPercent, _nextBuyCostAveLevel, _nextSellCostAveLevel,
                         _nextBuyPyAddLevel, _nextSellPyrAddLevel, _PyramidSellStopLoss, _PyramidBuyStopLoss,
@@ -330,9 +336,6 @@ namespace cAlgo.Robots
         private Bars _dailyBars;
         private Bars _lowerTimeframeBars;
         private Bars _higherTimeframeBars;
-
-
-
 
         #endregion
 
@@ -401,12 +404,34 @@ namespace cAlgo.Robots
 
             OrderComment = BotLabel + MyAutoStrategyName.ToString();
 
+            HLineTransparency = (int)(255 * 0.01 * HLineTransparency);
+            hColour = Color.FromArgb(HLineTransparency, Color.FromName(HLineColor).R, Color.FromName(HLineColor).G, Color.FromName(HLineColor).B);
+            DisplayPanel();
+            Chart.MouseMove += OnChartMouseMove;
+            Chart.MouseLeave += OnChartMouseLeave;
+            Chart.MouseDown += OnChartMouseDown;
+
         }
         #endregion
 
         # region OnTick function
         protected override void OnTick()
         {
+            var positions = Positions.FindAll(OrderComment);
+            double totalUsedLots = positions.Sum(position => position.VolumeInUnits / 100000); // Convert volume to lots
+            double totalBotTrades = positions.Count();
+
+            ShowSpread.Text = "Spread  :  " + Math.Round(Symbol.Spread / Symbol.PipSize, 2);
+            ShowADR.Text = "ADR  :  " + _adrOverall;
+            ShowCurrentADR.Text = "Today Range  :  " + _adrCurrent;
+            ShowADRPercent.Text = "Range %  :  " + _adrPercent + "%";
+            ShowDrawdown.Text = "DD (Sym) (Acc)  :  " + Account.UnrealizedGrossProfit;
+            ShowLotsInfo.Text = "Lots (Sym) (Max)  :  " + totalUsedLots;
+            ShowTradesInfo.Text = "Trades (Sym) (Acc)  :  " + totalBotTrades;
+            ShowTargetInfo.Text = "Equity Curr -> Targ  :  " + Account.Equity + " -> " + EquityTarget;
+            ShowNextBuy.Text = "Next Buy Min Level  :  " + _nextBuyCostAveLevel;
+            ShowNextSell.Text = "Next Sell Min Level  :  " + _nextSellCostAveLevel;
+
             CalculateADR();
 
             EvaluateExit();
@@ -974,6 +999,234 @@ namespace cAlgo.Robots
 
         #endregion
 
+        #region Display Functions 
+        private void DisplayPanel()
+        {
+
+
+            contentPanel = new StackPanel
+            {
+
+                HorizontalAlignment = PanelHorizontalAlignment,
+                VerticalAlignment = PanelVerticalAlignment,
+                Width = 225,
+                Style = Styles.ContentStyle()
+            };
+
+            var grid = new Grid(33, 2);
+
+            ShowHeader = new TextBlock
+            {
+                Text = "Trading Panel",
+                Style = Styles.CreateHeaderStyle()
+            };
+
+            ShowSpread = new TextBlock { Style = Styles.TextBodyStyle() };
+            ShowADR = new TextBlock { Style = Styles.TextBodyStyle() };
+            ShowCurrentADR = new TextBlock { Style = Styles.TextBodyStyle() };
+            ShowADRPercent = new TextBlock { Style = Styles.TextBodyStyle() };
+            ShowDrawdown = new TextBlock { Style = Styles.TextBodyStyle() };
+            ShowLotsInfo = new TextBlock { Style = Styles.TextBodyStyle() };
+            ShowTradesInfo = new TextBlock { Style = Styles.TextBodyStyle() };
+            ShowTargetInfo = new TextBlock { Style = Styles.TextBodyStyle() };
+            ShowNextBuy = new TextBlock { Style = Styles.TextBodyStyle() };
+            ShowNextSell = new TextBlock { Style = Styles.TextBodyStyle() };
+
+            grid.Columns[1].SetWidthInPixels(3);
+            buystoplimitbutton = new ToggleButton
+            {
+                Text = "Buy Stop/Limit",
+                Style = Styles.BuyButtonStyle()
+            };
+
+            sellstoplimitbutton = new ToggleButton
+            {
+                Text = "Sell Stop/Limit",
+                Style = Styles.SellButtonStyle()
+            };
+
+            grid.AddChild(ShowHeader, 0, 0);
+            grid.AddChild(ShowSpread, 1, 0);
+            grid.AddChild(ShowADR, 2, 0);
+            grid.AddChild(ShowCurrentADR, 3, 0);
+            grid.AddChild(ShowADRPercent, 4, 0);
+            grid.AddChild(ShowDrawdown, 5, 0);
+            grid.AddChild(ShowLotsInfo, 6, 0);
+            grid.AddChild(ShowTradesInfo, 7, 0);
+            grid.AddChild(ShowTargetInfo, 8, 0);
+            grid.AddChild(ShowNextBuy, 9, 0);
+            grid.AddChild(ShowNextSell, 10, 0);
+            grid.AddChild(buystoplimitbutton, 11, 0, 1, 2);
+            grid.AddChild(sellstoplimitbutton, 12, 0, 1, 2);
+
+
+
+            buystoplimitbutton.Click += buySLbutton;
+            sellstoplimitbutton.Click += SellSLbutton;
+            contentPanel.AddChild(grid);
+            Chart.AddControl(contentPanel);
+        }
+        private void buySLbutton(ToggleButtonEventArgs e)
+        {
+            if (buystoplimitbutton.IsChecked == true) buySLbool = true;
+            else buySLbool = false;
+        }
+
+        private void SellSLbutton(ToggleButtonEventArgs e)
+        {
+            if (sellstoplimitbutton.IsChecked == true) sellSLbool = true;
+            else sellSLbool = false;
+        }
+        private void buystoplimitorder(double openprice)
+        {
+            if (openprice <= Symbol.Ask) PlaceLimitOrderAsync(TradeType.Buy, SymbolName, Symbol.QuantityToVolumeInUnits(DefaultLotSize), openprice, OrderComment, DefaultStopLoss, DefaultTakeProfit);
+            if (openprice > Symbol.Ask) PlaceStopOrderAsync(TradeType.Buy, SymbolName, Symbol.QuantityToVolumeInUnits(DefaultLotSize), openprice, OrderComment, DefaultStopLoss,DefaultTakeProfit);
+        }
+
+        private void sellstoplimitorder(double openprice)
+        {
+            if (openprice >= Symbol.Bid) PlaceLimitOrderAsync(TradeType.Sell, SymbolName, Symbol.QuantityToVolumeInUnits(DefaultLotSize), openprice, OrderComment, DefaultStopLoss, DefaultTakeProfit);
+            if (openprice < Symbol.Bid) PlaceStopOrderAsync(TradeType.Sell, SymbolName, Symbol.QuantityToVolumeInUnits(DefaultLotSize), openprice, OrderComment, DefaultStopLoss, DefaultTakeProfit);
+        }
+
+        private void OnChartMouseDown(ChartMouseEventArgs obj)
+        {
+            if (buySLbool == true)
+            {
+                buystoplimitorder(Math.Round(obj.YValue, Symbol.Digits));
+                buystoplimitbutton.IsChecked = false;
+                buySLbool = false;
+            }
+
+            if (sellSLbool == true)
+            {
+                sellstoplimitorder(Math.Round(obj.YValue, Symbol.Digits));
+                sellstoplimitbutton.IsChecked = false;
+                sellSLbool = false;
+            }
+
+            Chart.RemoveObject("HorizontalLine");
+            Chart.RemoveObject("price");
+        }
+
+        private void OnChartMouseMove(ChartMouseEventArgs obj)
+        {
+            if (buySLbool == true)
+            {
+                if (buySLbool == true)
+                {
+                    HorizontalLine = Chart.DrawHorizontalLine("stoplimitHorizontalLine", obj.YValue, Color.FromHex("#2C820A"), HLineThickness, HLineStyle);
+                    if (Math.Round(obj.YValue, Symbol.Digits) <= Symbol.Ask)
+                    {
+                        var sprice = Chart.DrawText("stoplimitprice", "Buy Limit " + Math.Round(obj.YValue, Symbol.Digits).ToString(), Chart.FirstVisibleBarIndex, obj.YValue, Color.FromHex("#2C820A"));
+                    }
+                    else if (Math.Round(obj.YValue, Symbol.Digits) > Symbol.Ask)
+                    {
+                        var sprice = Chart.DrawText("stoplimitprice", "Buy Stop " + Math.Round(obj.YValue, Symbol.Digits).ToString(), Chart.FirstVisibleBarIndex, obj.YValue, Color.FromHex("#2C820A"));
+                    }
+                }
+            }
+
+            if (sellSLbool == true)
+            {
+                if (sellSLbool == true)
+                {
+                    HorizontalLine = Chart.DrawHorizontalLine("stoplimitHorizontalLine", obj.YValue, Color.FromHex("#F05824"), HLineThickness, HLineStyle);
+                    if (Math.Round(obj.YValue, Symbol.Digits) >= Symbol.Bid)
+                    {
+                        var sprice = Chart.DrawText("stoplimitprice", "Sell Limit " + Math.Round(obj.YValue, Symbol.Digits).ToString(), Chart.FirstVisibleBarIndex, obj.YValue, Color.FromHex("#F05824"));
+                    }
+                    else if (Math.Round(obj.YValue, Symbol.Digits) < Symbol.Bid)
+                    {
+                        var sprice = Chart.DrawText("stoplimitprice", "Sell Stop " + Math.Round(obj.YValue, Symbol.Digits).ToString(), Chart.FirstVisibleBarIndex, obj.YValue, Color.FromHex("#F05824"));
+                    }
+                }
+            }
+        }
+        void OnChartMouseLeave(ChartMouseEventArgs obj)
+        {
+            Chart.RemoveObject("stoplimitHorizontalLine");
+            Chart.RemoveObject("stoplimitprice");
+        }
+
+        private static Color GetColorWithOpacity(Color baseColor, decimal opacity)
+        {
+            var alpha = (int)Math.Round(byte.MaxValue * opacity, MidpointRounding.AwayFromZero);
+            return Color.FromArgb(alpha, baseColor);
+        }
+
+
+
+        #endregion
+
         #endregion
     }
+
+    #region Helper Classes
+    public static class Styles
+    {
+        public static Style CreateHeaderStyle()
+        {
+            var style = new Style();
+            style.Set(ControlProperty.ForegroundColor, GetColorWithOpacity("#FFFFFF", 0.70m), ControlState.DarkTheme);
+            style.Set(ControlProperty.ForegroundColor, GetColorWithOpacity("#000000", 0.65m), ControlState.LightTheme);
+            style.Set(ControlProperty.Margin, 5);
+            style.Set(ControlProperty.FontSize, 15);
+            style.Set(ControlProperty.FontStyle, FontStyle.Oblique);
+            return style;
+        }
+
+        public static Style TextBodyStyle()
+        {
+            var style = new Style();
+            style.Set(ControlProperty.ForegroundColor, GetColorWithOpacity("#FFFFFF", 0.70m), ControlState.DarkTheme);
+            style.Set(ControlProperty.ForegroundColor, GetColorWithOpacity("#000000", 0.65m), ControlState.LightTheme);
+            style.Set(ControlProperty.Margin, 5);
+            style.Set(ControlProperty.FontFamily, "Cambria");
+            style.Set(ControlProperty.FontSize, 12);
+            return style;
+        }
+
+        public static Style ContentStyle()
+        {
+            var contetstyle = new Style();
+            contetstyle.Set(ControlProperty.CornerRadius, 3);
+            contetstyle.Set(ControlProperty.BackgroundColor, GetColorWithOpacity(Color.FromHex("#292929"), 0.85m), ControlState.DarkTheme);
+            contetstyle.Set(ControlProperty.BackgroundColor, GetColorWithOpacity(Color.FromHex("#FFFFFF"), 0.85m), ControlState.LightTheme);
+            contetstyle.Set(ControlProperty.Margin, "20 20 20 20");
+            return contetstyle;
+        }
+
+        public static Style BuyButtonStyle()
+        {
+            var buystoplimitstyle = new Style();
+            buystoplimitstyle.Set(ControlProperty.BackgroundColor, Color.FromHex("#2C820A"), ControlState.DarkTheme);
+            buystoplimitstyle.Set(ControlProperty.BackgroundColor, Color.FromHex("#2C820A"), ControlState.LightTheme);
+            buystoplimitstyle.Set(ControlProperty.BackgroundColor, Color.FromHex("#20570A"), ControlState.DarkTheme | ControlState.Checked);
+            buystoplimitstyle.Set(ControlProperty.BackgroundColor, Color.FromHex("#20570A"), ControlState.LightTheme | ControlState.Checked);
+            buystoplimitstyle.Set(ControlProperty.ForegroundColor, Color.FromHex("#FFFFFF"), ControlState.DarkTheme);
+            buystoplimitstyle.Set(ControlProperty.ForegroundColor, Color.FromHex("#FFFFFF"), ControlState.LightTheme);
+            buystoplimitstyle.Set(ControlProperty.Margin, 3);
+            return buystoplimitstyle;
+        }
+
+        public static Style SellButtonStyle()
+        {
+            var sellstoplimitstyle = new Style();
+            sellstoplimitstyle.Set(ControlProperty.BackgroundColor, Color.FromHex("#F05824"), ControlState.DarkTheme);
+            sellstoplimitstyle.Set(ControlProperty.BackgroundColor, Color.FromHex("#F05824"), ControlState.LightTheme);
+            sellstoplimitstyle.Set(ControlProperty.BackgroundColor, Color.FromHex("#8B0000"), ControlState.DarkTheme | ControlState.Checked);
+            sellstoplimitstyle.Set(ControlProperty.BackgroundColor, Color.FromHex("#8B0000"), ControlState.LightTheme | ControlState.Checked);
+            sellstoplimitstyle.Set(ControlProperty.ForegroundColor, Color.FromHex("#FFFFFF"), ControlState.DarkTheme);
+            sellstoplimitstyle.Set(ControlProperty.ForegroundColor, Color.FromHex("#FFFFFF"), ControlState.LightTheme);
+            sellstoplimitstyle.Set(ControlProperty.Margin, 3);
+            return sellstoplimitstyle;
+        }
+        private static Color GetColorWithOpacity(Color baseColor, decimal opacity)
+        {
+            var alpha = (int)Math.Round(byte.MaxValue * opacity, MidpointRounding.AwayFromZero);
+            return Color.FromArgb(alpha, baseColor);
+        }
+    }
+    #endregion
 }
