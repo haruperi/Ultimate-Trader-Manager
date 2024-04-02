@@ -78,6 +78,7 @@ namespace cAlgo.Robots
         {
             TL_None,
             TL_Fixed,
+            TL_Fixed_BE,
             TL_Psar,
             TL_Pyramid,
         };
@@ -146,6 +147,12 @@ namespace cAlgo.Robots
 
         [Parameter("Default StopLoss ", Group = "RISK MANAGEMENT", DefaultValue = 20, MinValue = 5, Step = 1)]
         public double DefaultStopLoss { get; set; }
+        
+        [Parameter("Use Fake StopLoss ", Group = "RISK MANAGEMENT", DefaultValue = true)]
+        public bool UseFakeStopLoss { get; set; }
+        
+        [Parameter("Fake StopLoss ", Group = "RISK MANAGEMENT", DefaultValue = 200, MinValue = 100, Step = 5)]
+        public double FakeStopLoss { get; set; }
 
         [Parameter("Take Profit Mode", Group = "RISK MANAGEMENT", DefaultValue = TakeProfitMode.TP_Fixed)]
         public TakeProfitMode MyTakeProfitMode { get; set; }
@@ -182,7 +189,7 @@ namespace cAlgo.Robots
         [Parameter("Pyramid Stop Loss", Group = "TRADE MANAGEMENT", DefaultValue = 5)]
         public double PyramidStopLoss { get; set; }
 
-        [Parameter("Use Trailing Stop ", Group = "TRADE MANAGEMENT", DefaultValue = TrailingMode.TL_None)]
+        [Parameter("Use Trailing Stop ", Group = "TRADE MANAGEMENT", DefaultValue = TrailingMode.TL_Fixed_BE)]
         public TrailingMode MyTrailingMode { get; set; }
 
         [Parameter("Trail After (Pips) ", Group = "TRADE MANAGEMENT", DefaultValue = 10, MinValue =1)]
@@ -624,7 +631,7 @@ namespace cAlgo.Robots
                 if (totalSellPips > DefaultTakeProfit * _totalOpenSell) _signalExit = -1;
             }
 
-            if (MyTrailingMode == TrailingMode.TL_None)
+            if (MyTrailingMode != TrailingMode.TL_Psar)
             {
                 if (totalBuyPips > DefaultTakeProfit) _signalExit = 1;
                 if (totalSellPips > DefaultTakeProfit) _signalExit = -1;
@@ -681,6 +688,23 @@ namespace cAlgo.Robots
         private void ExecuteTrailingStop()
         {
             if (MyTrailingMode == TrailingMode.TL_None) return;
+            
+            if(MyTrailingMode == TrailingMode.TL_Fixed_BE)
+            {
+                foreach (var position in Positions)
+                {
+                    if (position.SymbolName != SymbolName) continue;
+                    if (position.Label != OrderComment) continue;
+                    if (position.Pips < DefaultStopLoss) continue;
+                    if (position.TradeType == TradeType.Buy && position.StopLoss == position.EntryPrice + PipsToDigits(1)) continue;
+                    if (position.TradeType == TradeType.Sell && position.StopLoss == position.EntryPrice - PipsToDigits(1)) continue;
+
+                    bool isProtected = position.StopLoss.HasValue;
+                    double newStopLoss = position.TradeType == TradeType.Buy ? position.EntryPrice + PipsToDigits(1) :  position.EntryPrice - PipsToDigits(1);
+                    if (isProtected) ModifyPosition(position, newStopLoss, null);
+
+                }
+            }
 
             if(MyTrailingMode == TrailingMode.TL_Psar)
             {
@@ -694,8 +718,7 @@ namespace cAlgo.Robots
 
                     bool isProtected = position.StopLoss.HasValue;
 
-                    if (position.TradeType == TradeType.Buy && isProtected) ModifyPosition(position, newStopLoss, null);
-                    if (position.TradeType == TradeType.Sell && isProtected) ModifyPosition(position, newStopLoss, null);
+                    if (isProtected) ModifyPosition(position, newStopLoss, null);
 
                 }
             }
@@ -731,9 +754,9 @@ namespace cAlgo.Robots
                     bool validBuy = DigitsToPips(Symbol.Ask - _lastSwingLow) < CostAveDistance;
                     bool validSell = DigitsToPips(_lastSwingHigh - Symbol.Bid) < CostAveDistance;
                     if (validBuy &&
-                       // _williamsPctR.Result.LastValue > -20 &&
+                        _williamsPctR.Result.LastValue > -20 &&
                         _fastMA.Result.LastValue > _slowMA.Result.LastValue &&
-                        _ltffastMA.Result.Last(1) < _ltfslowMA.Result.Last(1) &&
+                        //_ltffastMA.Result.Last(1) < _ltfslowMA.Result.Last(1) &&
                         _ltffastMA.Result.LastValue > _ltfslowMA.Result.LastValue &&
                         _htffastMA.Result.LastValue > _htfslowMA.Result.LastValue)
                     {
@@ -741,13 +764,19 @@ namespace cAlgo.Robots
                         foreach (var position in Positions.Where(p => p.SymbolName == SymbolName && p.Label == OrderComment && p.TradeType == TradeType.Sell))
                         {
                             if (position.GrossProfit > 0) ClosePosition(position); 
+                            else
+                            {
+                            double newStopLoss = position.TradeType == TradeType.Buy ? position.EntryPrice + PipsToDigits(1) :  position.EntryPrice - PipsToDigits(1);
+                            ModifyPosition(position, newStopLoss, null);
+                            }
+
                         }
                     }
 
-                    if (validBuy &&
-                        //_williamsPctR.Result.LastValue < -80 &&
+                    if (validSell &&
+                        _williamsPctR.Result.LastValue < -80 &&
                         _fastMA.Result.LastValue < _slowMA.Result.LastValue &&
-                        _ltffastMA.Result.Last(1) > _ltfslowMA.Result.Last(1) &&
+                       // _ltffastMA.Result.Last(1) > _ltfslowMA.Result.Last(1) &&
                          _ltffastMA.Result.LastValue < _ltfslowMA.Result.LastValue &&
                         _htffastMA.Result.LastValue < _htfslowMA.Result.LastValue)
                     {
@@ -755,6 +784,11 @@ namespace cAlgo.Robots
                         foreach (var position in Positions.Where(p => p.SymbolName == SymbolName && p.Label == OrderComment && p.TradeType == TradeType.Buy))
                         {
                             if (position.GrossProfit > 0) ClosePosition(position);
+                            else
+                            {
+                            double newStopLoss = position.TradeType == TradeType.Buy ? position.EntryPrice + PipsToDigits(1) :  position.EntryPrice - PipsToDigits(1);
+                            ModifyPosition(position, newStopLoss, null);
+                            }
                         }
                     }
                 }
@@ -809,6 +843,9 @@ namespace cAlgo.Robots
 
             if (MyPositionSizeMode == PositionSizeMode.Risk_Fixed) _volumeInUnits = Symbol.QuantityToVolumeInUnits(DefaultLotSize);
             if (MyPositionSizeMode == PositionSizeMode.Risk_Auto) _volumeInUnits = LotSizeCalculate();
+            
+            if (UseFakeStopLoss && FakeStopLoss > 2*_adrOverall) StopLoss = FakeStopLoss; 
+            if (UseFakeStopLoss && FakeStopLoss < 2*_adrOverall) StopLoss = 2*_adrOverall; 
 
             if (_signalEntry == 1 && _totalOpenBuy <= MaxPositions && _totalOpenBuy <= MaxBuyPositions)
             {
