@@ -42,14 +42,16 @@ namespace cAlgo.Robots
             Trend_MA_MTF,
             HHLL_MTF,
             RSIMeanReversion,
-            ADRReversal
+            ADRReversal,
+            BreakoutScalper
         }
 
         public enum RiskBase
         {
             BaseEquity,
             BaseBalance,
-            BaseMargin
+            BaseMargin, 
+            BaseFixedBalance
         };
 
         public enum PositionSizeMode
@@ -127,10 +129,13 @@ namespace cAlgo.Robots
         [Parameter("Cal Risk From ", Group = "RISK MANAGEMENT", DefaultValue = RiskBase.BaseBalance)]
         public RiskBase MyRiskBase { get; set; }
 
+        [Parameter("Base Fixed Balance ", Group = "RISK MANAGEMENT", DefaultValue = 100)]
+        public double MyBaseFixedBalance { get; set; }
+
         [Parameter("Max Risk % Per Trade", Group = "RISK MANAGEMENT", DefaultValue = 1, MinValue = 0.1, Step = 0.01)]
         public double MaxRiskPerTrade { get; set; }
 
-        [Parameter("Risk Reward Ratio - 1:", Group = "RISK MANAGEMENT", DefaultValue = 2, MinValue = 0.1, Step = 0.01)]
+        [Parameter("Risk Reward Ratio - 1:", Group = "RISK MANAGEMENT", DefaultValue = 1, MinValue = 0.1, Step = 0.01)]
         public double RiskRewardRatio { get; set; }
 
         [Parameter("Max Positions", Group = "RISK MANAGEMENT", DefaultValue = 1, MinValue = 1, Step = 1)]
@@ -201,8 +206,13 @@ namespace cAlgo.Robots
         [Parameter("Cost Ave Take Profit", Group = "TRADE MANAGEMENT", DefaultValue = false)]
         public bool IsCostAveTakeProfit { get; set; }
 
-        [Parameter("Break-Even Extra (pips)", Group = "TRADE MANAGEMENT", DefaultValue = 1, MinValue = 1)]
-        public int BreakEvenExtraPips { get; set; }
+        [Parameter("Commissions pips", Group = "TRADE MANAGEMENT", DefaultValue = 1, MinValue = 1)]
+        public int CommissionsPips { get; set; }
+
+        [Parameter("Pending Order Distance (pips)", Group = "TRADE MANAGEMENT", DefaultValue = 2, MinValue = 1)]
+        public double PendingOrderDistance { get; set; }
+
+        
         #endregion
 
         #region  Indicator Settings
@@ -211,9 +221,6 @@ namespace cAlgo.Robots
 
         [Parameter("ADR Divisor SL", Group = "INDICATOR SETTINGS", DefaultValue = 3)]
         public double ADR_SL { get; set; }
-
-        [Parameter("ADR Divisor TP", Group = "INDICATOR SETTINGS", DefaultValue = 2)]
-        public double ADR_TP { get; set; }
 
         [Parameter("Lower Timeframe", Group = "INDICATOR SETTINGS", DefaultValue = "Minute5")]
         public TimeFrame LowerTimeframe { get; set; }
@@ -320,7 +327,7 @@ namespace cAlgo.Robots
         private ChartHorizontalLine HorizontalLine;
 
         private bool _isPreChecksOk, _isSpreadOK, _isOperatingHours, _isUpSwingLTF, _isUpSwing, _isUpSwingHTF, _switchedToBullish, _switchedToBearish, _rsiBullishTrigger, _rsiBearishTrigger, buySLbool, sellSLbool;
-        private int  _totalOpenOrders, _totalOpenBuy, _totalOpenSell, _signalEntry, _signalExit;
+        private int  _totalOpenOrders, _totalOpenBuy, _totalOpenSell, _totalPendingOrders, _totalPendingBuy, _totalPendingSell, _signalEntry, _signalExit;
         private double _gridDistanceBuy, _gridDistanceSell, _atr, _adrCurrent, _adrOverall, _adrPercent, _nextBuyCostAveLevel, _nextSellCostAveLevel,
                         _nextBuyPyAddLevel, _nextSellPyrAddLevel, _PyramidSellStopLoss, _PyramidBuyStopLoss,
                        _highestHighLTF, _lowestHighLTF, _highestLowLTF, _lowestLowLTF, _highestHigh, _lowestHigh, _highestLow, _lowestLow,
@@ -435,7 +442,8 @@ namespace cAlgo.Robots
             ShowDrawdown.Text = "DD (Sym) (Acc)  :  " + Account.UnrealizedGrossProfit;
             ShowLotsInfo.Text = "Lots (Sym) (Max)  :  " + totalUsedLots;
             ShowTradesInfo.Text = "Trades (Sym) (Acc)  :  " + totalBotTrades;
-            ShowTargetInfo.Text = "Equity Curr -> Targ  :  " + Account.Equity + " -> " + EquityTarget;
+            ShowTargetInfo.Text = "Equity Curr -> Targ  :  " + _totalPendingBuy + " -> " + _totalPendingSell;
+           // ShowTargetInfo.Text = "Equity Curr -> Targ  :  " + Account.Equity + " -> " + EquityTarget;
 
             if (AutoTradeManagement)
             {
@@ -460,6 +468,7 @@ namespace cAlgo.Robots
             ScanOrders();
 
             ExecuteTrailingStop();
+
         }
         #endregion
 
@@ -480,6 +489,8 @@ namespace cAlgo.Robots
             EvaluateEntry();
 
             ExecuteEntry();
+
+            if (MyAutoStrategyName == AutoStrategyName.BreakoutScalper) IsBullish();
 
         }
         #endregion
@@ -541,7 +552,10 @@ namespace cAlgo.Robots
             _totalOpenOrders = 0;
             _totalOpenBuy = 0;
             _totalOpenSell = 0;
-            _signalEntry = 0;
+            _totalPendingBuy = 0;
+            _totalPendingSell = 0;
+            _totalPendingOrders = 0;
+            _signalEntry = 0;  
             _signalExit = 0;
 
             _isRecoveryTrade = false;
@@ -587,6 +601,17 @@ namespace cAlgo.Robots
 
                 _totalOpenOrders++;
             }
+
+            foreach (var order in PendingOrders)
+            {
+                if (order.SymbolName != SymbolName) continue;
+                if (order.Label != OrderComment) continue;
+                if (order.TradeType == TradeType.Buy) _totalPendingBuy++;
+                if (order.TradeType == TradeType.Sell) _totalPendingSell++;
+
+                _totalPendingOrders++;
+            }
+
         }
         #endregion
 
@@ -754,9 +779,9 @@ namespace cAlgo.Robots
                     bool validBuy = DigitsToPips(Symbol.Ask - _lastSwingLow) < CostAveDistance;
                     bool validSell = DigitsToPips(_lastSwingHigh - Symbol.Bid) < CostAveDistance;
                     if (validBuy &&
-                        _williamsPctR.Result.LastValue > -20 &&
+                       // _williamsPctR.Result.LastValue > -20 &&
                         _fastMA.Result.LastValue > _slowMA.Result.LastValue &&
-                        //_ltffastMA.Result.Last(1) < _ltfslowMA.Result.Last(1) &&
+                        _ltffastMA.Result.Last(1) < _ltfslowMA.Result.Last(1) &&
                         _ltffastMA.Result.LastValue > _ltfslowMA.Result.LastValue &&
                         _htffastMA.Result.LastValue > _htfslowMA.Result.LastValue)
                     {
@@ -774,10 +799,10 @@ namespace cAlgo.Robots
                     }
 
                     if (validSell &&
-                        _williamsPctR.Result.LastValue < -80 &&
+                        //_williamsPctR.Result.LastValue < -80 &&
                         _fastMA.Result.LastValue < _slowMA.Result.LastValue &&
-                       // _ltffastMA.Result.Last(1) > _ltfslowMA.Result.Last(1) &&
-                         _ltffastMA.Result.LastValue < _ltfslowMA.Result.LastValue &&
+                        _ltffastMA.Result.Last(1) > _ltfslowMA.Result.Last(1) &&
+                        _ltffastMA.Result.LastValue < _ltfslowMA.Result.LastValue &&
                         _htffastMA.Result.LastValue < _htfslowMA.Result.LastValue)
                     {
                         _signalEntry = -1;
@@ -838,8 +863,8 @@ namespace cAlgo.Robots
 
             if (MyTakeProfitMode == TakeProfitMode.TP_None) TakeProfit = 0;
             if (MyTakeProfitMode == TakeProfitMode.TP_Fixed) TakeProfit = DefaultTakeProfit;
-            if (MyTakeProfitMode == TakeProfitMode.TP_Auto_RRR) TakeProfit = Math.Round(StopLoss * RiskRewardRatio, 0);
-            if (MyTakeProfitMode == TakeProfitMode.TP_Auto_ADR) TakeProfit = Math.Round(_adrOverall / ADR_TP, 0);
+            if (MyTakeProfitMode == TakeProfitMode.TP_Auto_RRR) TakeProfit = Math.Round(StopLoss * RiskRewardRatio + CommissionsPips, 0);
+            if (MyTakeProfitMode == TakeProfitMode.TP_Auto_ADR) TakeProfit = Math.Round(_adrOverall / StopLoss + CommissionsPips, 0);
 
             if (MyPositionSizeMode == PositionSizeMode.Risk_Fixed) _volumeInUnits = Symbol.QuantityToVolumeInUnits(DefaultLotSize);
             if (MyPositionSizeMode == PositionSizeMode.Risk_Auto) _volumeInUnits = LotSizeCalculate();
@@ -940,8 +965,6 @@ namespace cAlgo.Robots
         #region Current Bullish
         private bool IsBullish()
         {
-            double openPrice = Bars.OpenPrices.Last(1);
-            double closePrice = Bars.ClosePrices.Last(1);
             double highPrice = Bars.HighPrices.Last(1);
             double lowPrice = Bars.LowPrices.Last(1);
 
@@ -950,15 +973,36 @@ namespace cAlgo.Robots
                 if (lowPrice > _highestLow)
                 {
                     _highestLow = lowPrice;
-                    _switchedToBullish = false;
-                    _switchedToBearish = false;
+                    _highestHigh = Math.Max(highPrice, _highestHigh);
+                    if (MyAutoStrategyName == AutoStrategyName.BreakoutScalper) Chart.DrawHorizontalLine("ShowSwingHigh", _highestHigh, "#5335E5", 2, LineStyle.DotsVeryRare);
                 }
                 if (highPrice < _highestLow)
                 {
                     _isUpSwing = false;
                     _lowestHigh = highPrice;
-                    _switchedToBullish = false;
-                    _switchedToBearish = true;
+                    _lastSwingHigh = _highestHigh;
+                    _lowestLow = double.MaxValue;
+
+                    if (MyAutoStrategyName == AutoStrategyName.BreakoutScalper)
+                    {
+                        double openprice = _highestHigh + Symbol.Spread + PipsToDigits(PendingOrderDistance);
+
+                        /*
+                        if (_totalPendingBuy > 0)
+                        foreach (var order in PendingOrders.Where(p => p.SymbolName == SymbolName && p.TradeType == TradeType.Buy && p.Label == OrderComment))
+                            order.ModifyTargetPrice(openprice);
+
+                        else
+                        PlaceStopOrderAsync(TradeType.Buy, SymbolName, Symbol.QuantityToVolumeInUnits(DefaultLotSize), openprice, OrderComment, DefaultStopLoss, DefaultTakeProfit);
+                        */
+                        if (PendingOrders.Count(p => p.SymbolName == SymbolName && p.Label == OrderComment && p.OrderType == PendingOrderType.Stop && p.TradeType == TradeType.Buy) == 0)
+                        //    foreach (var order in PendingOrders.Where(p => p.TradeType == TradeType.Buy))
+                          //      order.ModifyTargetPrice(openprice);
+                                //order.Cancel();
+                      //  else
+                            PlaceStopOrderAsync(TradeType.Buy, SymbolName, Symbol.QuantityToVolumeInUnits(DefaultLotSize), openprice, OrderComment, DefaultStopLoss, DefaultTakeProfit);
+
+                    }
                 }
             }
             else
@@ -966,15 +1010,37 @@ namespace cAlgo.Robots
                 if (highPrice < _lowestHigh)
                 {
                     _lowestHigh = highPrice;
-                    _switchedToBullish = false;
-                    _switchedToBearish = false;
+                    _lowestLow = Math.Min(lowPrice, _lowestLow);
+                    if (MyAutoStrategyName == AutoStrategyName.BreakoutScalper)  Chart.DrawHorizontalLine("ShowSwingLow", _lowestLow, "#FC1D85", 1, LineStyle.DotsVeryRare);
                 }
                 if (lowPrice > _lowestHigh)
                 {
                     _isUpSwing = true;
                     _highestLow = lowPrice;
-                    _switchedToBullish = true;
-                    _switchedToBearish = false;
+                    _lastSwingLow = _lowestLow;
+                    _highestHigh = double.MinValue;
+
+                    if (MyAutoStrategyName == AutoStrategyName.BreakoutScalper)
+                    {
+                        double openprice = _lowestLow - Symbol.Spread - PipsToDigits(PendingOrderDistance);
+
+                        /*
+                        if (_totalPendingSell > 0)
+                            foreach (var order in PendingOrders.Where(p => p.SymbolName == SymbolName && p.TradeType == TradeType.Sell && p.Label == OrderComment))
+                                order.ModifyTargetPrice(openprice);
+
+                        else
+                            PlaceStopOrderAsync(TradeType.Sell, SymbolName, Symbol.QuantityToVolumeInUnits(DefaultLotSize), openprice, OrderComment, DefaultStopLoss, DefaultTakeProfit); 
+                        */
+
+                        if (PendingOrders.Count(p => p.SymbolName == SymbolName && p.Label == OrderComment && p.OrderType == PendingOrderType.Stop && p.TradeType == TradeType.Sell) == 0)
+                        //    foreach (var order in PendingOrders.Where(p => p.TradeType == TradeType.Sell))
+                          //       order.ModifyTargetPrice(openprice);
+                                //order.Cancel();
+                       // else
+                            PlaceStopOrderAsync(TradeType.Sell, SymbolName, Symbol.QuantityToVolumeInUnits(DefaultLotSize), openprice, OrderComment, DefaultStopLoss, DefaultTakeProfit);
+
+                    }
                 }
             }
             return _isUpSwing;
@@ -984,8 +1050,6 @@ namespace cAlgo.Robots
         #region LTF Bullish
         private bool IsLTFBullish()
         {
-            double openPriceLTF = _lowerTimeframeBars.OpenPrices.Last(1);
-            double closePriceLTF = _lowerTimeframeBars.ClosePrices.Last(1);
             double highPriceLTF = _lowerTimeframeBars.HighPrices.Last(1);
             double lowPriceLTF = _lowerTimeframeBars.LowPrices.Last(1);
 
@@ -1056,6 +1120,7 @@ namespace cAlgo.Robots
             if (MyRiskBase == RiskBase.BaseEquity) RiskBaseAmount = Account.Equity;
             if (MyRiskBase == RiskBase.BaseBalance) RiskBaseAmount = Account.Balance;
             if (MyRiskBase == RiskBase.BaseMargin) RiskBaseAmount = Account.FreeMargin;
+            if (MyRiskBase == RiskBase.BaseFixedBalance) RiskBaseAmount = MyBaseFixedBalance;
 
             if (MyStopLossMode == StopLossMode.SL_Auto_ADR)
             {
@@ -1256,14 +1321,16 @@ namespace cAlgo.Robots
         }
         private void buystoplimitorder(double openprice)
         {
-            if (openprice <= Symbol.Ask) PlaceLimitOrderAsync(TradeType.Buy, SymbolName, Symbol.QuantityToVolumeInUnits(DefaultLotSize), openprice, OrderComment, DefaultStopLoss, DefaultTakeProfit);
-            if (openprice > Symbol.Ask) PlaceStopOrderAsync(TradeType.Buy, SymbolName, Symbol.QuantityToVolumeInUnits(DefaultLotSize), openprice, OrderComment, DefaultStopLoss,DefaultTakeProfit);
+            openprice = openprice + Symbol.Spread + PipsToDigits(PendingOrderDistance);
+            if (openprice <= Symbol.Ask) PlaceLimitOrderAsync(TradeType.Buy, SymbolName, Symbol.QuantityToVolumeInUnits(DefaultLotSize), openprice, OrderComment, FakeStopLoss, DefaultTakeProfit);
+            if (openprice > Symbol.Ask) PlaceStopOrderAsync(TradeType.Buy, SymbolName, Symbol.QuantityToVolumeInUnits(DefaultLotSize), openprice, OrderComment, FakeStopLoss,DefaultTakeProfit);
         }
 
         private void sellstoplimitorder(double openprice)
         {
-            if (openprice >= Symbol.Bid) PlaceLimitOrderAsync(TradeType.Sell, SymbolName, Symbol.QuantityToVolumeInUnits(DefaultLotSize), openprice, OrderComment, DefaultStopLoss, DefaultTakeProfit);
-            if (openprice < Symbol.Bid) PlaceStopOrderAsync(TradeType.Sell, SymbolName, Symbol.QuantityToVolumeInUnits(DefaultLotSize), openprice, OrderComment, DefaultStopLoss, DefaultTakeProfit);
+            openprice = openprice - Symbol.Spread - PipsToDigits(PendingOrderDistance);
+            if (openprice >= Symbol.Bid) PlaceLimitOrderAsync(TradeType.Sell, SymbolName, Symbol.QuantityToVolumeInUnits(DefaultLotSize), openprice, OrderComment, FakeStopLoss, DefaultTakeProfit);
+            if (openprice < Symbol.Bid) PlaceStopOrderAsync(TradeType.Sell, SymbolName, Symbol.QuantityToVolumeInUnits(DefaultLotSize), openprice, OrderComment, FakeStopLoss, DefaultTakeProfit);
         }
 
         private void OnChartMouseDown(ChartMouseEventArgs obj)
