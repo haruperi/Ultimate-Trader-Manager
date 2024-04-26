@@ -39,11 +39,9 @@ namespace cAlgo.Robots
         public enum AutoStrategyName
         {
             Trend_MA,
-            Trend_MA_MTF,
-            HHLL_MTF,
+            HHLL,
             RSIMeanReversion,
-            ADRReversal,
-            BreakoutScalper
+            BreakoutTrading
         }
 
         public enum RiskBase
@@ -170,6 +168,12 @@ namespace cAlgo.Robots
         [Parameter("Use Auto Trade Management", Group = "TRADE MANAGEMENT", DefaultValue = false)]
         public bool AutoTradeManagement { get; set; }
 
+        [Parameter("Split Trades", Group = "TRADE MANAGEMENT", DefaultValue = true)]
+        public bool SplitTrades { get; set; }
+
+        [Parameter("How Many Split Trades", Group = "TRADE MANAGEMENT", DefaultValue = 2)]
+        public double NumOfSplitTrades { get; set; }
+
         [Parameter("Use Pyramids for TP", Group = "TRADE MANAGEMENT", DefaultValue = false)]
         public bool DoPyramidsTrading { get; set; }
 
@@ -221,21 +225,6 @@ namespace cAlgo.Robots
 
         [Parameter("ADR Divisor SL", Group = "INDICATOR SETTINGS", DefaultValue = 3)]
         public double ADR_SL { get; set; }
-
-        [Parameter("Lower Timeframe", Group = "INDICATOR SETTINGS", DefaultValue = "Minute5")]
-        public TimeFrame LowerTimeframe { get; set; }
-
-        [Parameter("Higher Timeframe", Group = "INDICATOR SETTINGS", DefaultValue = "Hour")]
-        public TimeFrame HigherTimeframe { get; set; }
-
-        [Parameter("Period Fast MA", Group = "INDICATOR SETTINGS", DefaultValue = 3)]
-        public int PeriodFastMA { get; set; }
-
-        [Parameter("Period Slow MA", Group = "INDICATOR SETTINGS", DefaultValue = 9)]
-        public int PeriodSlowMA { get; set; }
-
-        [Parameter("MA Type", Group = "INDICATOR SETTINGS", DefaultValue = MovingAverageType.Weighted)]
-        public MovingAverageType MAType { get; set; }
 
         [Parameter("WPRPeriod", Group = "INDICATOR SETTINGS", DefaultValue = 5)]
         public int WPRPeriod { get; set; }
@@ -326,15 +315,13 @@ namespace cAlgo.Robots
         private Color hColour;
         private ChartHorizontalLine HorizontalLine;
 
-        private bool _isPreChecksOk, _isSpreadOK, _isOperatingHours, _isUpSwingLTF, _isUpSwing, _isUpSwingHTF, _switchedToBullish, _switchedToBearish, _rsiBullishTrigger, _rsiBearishTrigger, buySLbool, sellSLbool;
+        private bool _isPreChecksOk, _isSpreadOK, _isOperatingHours, _isUpSwing, _rsiBullishTrigger, _rsiBearishTrigger, buySLbool, sellSLbool, _isRecoveryTrade, _isPyramidTrade;
         private int  _totalOpenOrders, _totalOpenBuy, _totalOpenSell, _totalPendingOrders, _totalPendingBuy, _totalPendingSell, _signalEntry, _signalExit;
         private double _gridDistanceBuy, _gridDistanceSell, _atr, _adrCurrent, _adrOverall, _adrPercent, _nextBuyCostAveLevel, _nextSellCostAveLevel,
                         _nextBuyPyAddLevel, _nextSellPyrAddLevel, _PyramidSellStopLoss, _PyramidBuyStopLoss,
-                       _highestHighLTF, _lowestHighLTF, _highestLowLTF, _lowestLowLTF, _highestHigh, _lowestHigh, _highestLow, _lowestLow,
-                       _highestHighHTF, _lowestHighHTF, _highestLowHTF, _lowestLowHTF, _lastSwingHigh, _lastSwingLow, _defaultSwingHigh, _defaultSwingLow, WhenToTrailPrice;
+                        _highestHigh, _lowestHigh, _highestLow, _lowestLow, _lastSwingHigh, _lastSwingLow, WhenToTrailPrice;
         double[] HTBarHigh, HTBarLow, HTBarClose, HTBarOpen, LTBarHigh, LTBarLow, LTBarClose, LTBarOpen = new double[5];
         int HTOldNumBars = 0, LTOldNumBars = 0;
-        bool _isRecoveryTrade, _isPyramidTrade;
         private string OrderComment, _recoverySTR, _pyramidSTR;
 
         private RelativeStrengthIndex _rsi;
@@ -344,8 +331,6 @@ namespace cAlgo.Robots
         private MovingAverage _fastMA, _slowMA, _ltffastMA, _ltfslowMA, _htffastMA, _htfslowMA;
 
         private Bars _dailyBars;
-        private Bars _lowerTimeframeBars;
-        private Bars _higherTimeframeBars;
 
         #endregion
 
@@ -364,51 +349,31 @@ namespace cAlgo.Robots
             if (!_isPreChecksOk) Stop();
 
             _dailyBars = MarketData.GetBars(TimeFrame.Daily);
-            _lowerTimeframeBars = MarketData.GetBars(LowerTimeframe);
-            _higherTimeframeBars = MarketData.GetBars(HigherTimeframe);
 
             _adrCurrent = 0;
             _adrPercent = 0;
             _adrOverall = 0;
-            _defaultSwingHigh = 0.00001;
-            _defaultSwingLow = 100000;
-            _lastSwingHigh = _defaultSwingHigh;
-            _lastSwingLow = _defaultSwingLow;
+            _lastSwingHigh = 0.00001; ;
+            _lastSwingLow = 1000000;
 
             _williamsPctR = Indicators.WilliamsPctR(WPRPeriod);
-            _rsi = Indicators.RelativeStrengthIndex(_higherTimeframeBars.ClosePrices, RSIPeriod);
-            _averageTrueRange = Indicators.AverageTrueRange(_dailyBars, ADRPeriod, MAType);
+            _rsi = Indicators.RelativeStrengthIndex(Bars.ClosePrices, RSIPeriod);
+            _averageTrueRange = Indicators.AverageTrueRange(_dailyBars, ADRPeriod, MovingAverageType.Weighted);
             parabolicSAR = Indicators.ParabolicSAR(MinAccFactor, MaxAccFactor);
 
-            _fastMA = Indicators.MovingAverage(Bars.ClosePrices, PeriodFastMA, MAType);
-            _slowMA = Indicators.MovingAverage(Bars.ClosePrices, PeriodSlowMA, MAType);
+            _fastMA = Indicators.MovingAverage(Bars.ClosePrices, 3, MovingAverageType.Weighted);
+            _slowMA = Indicators.MovingAverage(Bars.ClosePrices, 9, MovingAverageType.Weighted);
 
-            _ltffastMA = Indicators.MovingAverage(_lowerTimeframeBars.ClosePrices, PeriodFastMA, MAType);
-            _ltfslowMA = Indicators.MovingAverage(_lowerTimeframeBars.ClosePrices, PeriodSlowMA, MAType);
+            _ltffastMA = Indicators.MovingAverage(Bars.ClosePrices,15, MovingAverageType.Weighted);
+            _ltfslowMA = Indicators.MovingAverage(Bars.ClosePrices, 45, MovingAverageType.Weighted);
 
-            _htffastMA = Indicators.MovingAverage(_higherTimeframeBars.ClosePrices, PeriodFastMA, MAType);
-            _htfslowMA = Indicators.MovingAverage(_higherTimeframeBars.ClosePrices, PeriodSlowMA, MAType);
+            _htffastMA = Indicators.MovingAverage(Bars.ClosePrices, 180, MovingAverageType.Weighted);
+            _htfslowMA = Indicators.MovingAverage(Bars.ClosePrices, 540, MovingAverageType.Weighted);
 
             _highestHigh = Bars.HighPrices.Last(2);
             _lowestHigh = Bars.HighPrices.Last(2);
             _highestLow = Bars.LowPrices.Last(2);
             _lowestLow = Bars.LowPrices.Last(2);
-            _isUpSwing = false;
-
-            _highestHighLTF = _lowerTimeframeBars.HighPrices.Last(2);
-            _lowestHighLTF = _lowerTimeframeBars.HighPrices.Last(2);
-            _highestLowLTF = _lowerTimeframeBars.LowPrices.Last(2);
-            _lowestLowLTF = _lowerTimeframeBars.LowPrices.Last(2);
-            _isUpSwingLTF = false;
-
-            _highestHighHTF = _higherTimeframeBars.HighPrices.Last(2);
-            _lowestHighHTF = _higherTimeframeBars.HighPrices.Last(2);
-            _highestLowHTF = _higherTimeframeBars.LowPrices.Last(2);
-            _lowestLowHTF = _higherTimeframeBars.LowPrices.Last(2);
-            _isUpSwingHTF = false;
-
-            _switchedToBullish = false;
-            _switchedToBearish = false;
 
             _rsiBullishTrigger = false;
             _rsiBearishTrigger = false;
@@ -451,7 +416,7 @@ namespace cAlgo.Robots
                 Chart.DrawHorizontalLine("ShowNextSell", _nextSellCostAveLevel, "#E4080A", 3, LineStyle.LinesDots);
             }
 
-            if(MyAutoStrategyName == AutoStrategyName.Trend_MA_MTF)
+            if(MyAutoStrategyName == AutoStrategyName.Trend_MA)
             {
                 Chart.DrawHorizontalLine("ShowSwingHigh", _lastSwingHigh, "#5335E5", 2, LineStyle.DotsVeryRare);
                 Chart.DrawHorizontalLine("ShowSwingLow", _lastSwingLow, "#FC1D85", 1, LineStyle.DotsVeryRare);
@@ -490,7 +455,7 @@ namespace cAlgo.Robots
 
             ExecuteEntry();
 
-            if (MyAutoStrategyName == AutoStrategyName.BreakoutScalper) IsBullish();
+            if (MyAutoStrategyName == AutoStrategyName.BreakoutTrading) IsBullish();
 
         }
         #endregion
@@ -756,32 +721,23 @@ namespace cAlgo.Robots
         #region Evaluate Entry
         private void EvaluateEntry()
         {
+            /****************************  pre checks ****************************/
             _signalEntry = 0;
             if (!_isSpreadOK) return;
             if (UseTradingHours && !_isOperatingHours) return;
             if (_totalOpenOrders == MaxPositions) return;
 
+            /****************************  Automatic Trading ****************************/
             if (MyTradingMode == TradingMode.Auto || MyTradingMode == TradingMode.Both)
             {
+                /****************************  Trend MA Strategy ****************************/
                 if (MyAutoStrategyName == AutoStrategyName.Trend_MA)
-                {
-                    if (_williamsPctR.Result.LastValue  > -20 &&
-                        _fastMA.Result.LastValue        > _slowMA.Result.LastValue)
-                        _signalEntry = 1;
-
-                    if (_williamsPctR.Result.LastValue < -80 &&
-                        _fastMA.Result.LastValue       < _slowMA.Result.LastValue)
-                        _signalEntry = -1;
-                } 
-
-                if (MyAutoStrategyName == AutoStrategyName.Trend_MA_MTF)
                 {
                     bool validBuy = DigitsToPips(Symbol.Ask - _lastSwingLow) < CostAveDistance;
                     bool validSell = DigitsToPips(_lastSwingHigh - Symbol.Bid) < CostAveDistance;
                     if (validBuy &&
-                       // _williamsPctR.Result.LastValue > -20 &&
+                        _williamsPctR.Result.LastValue > -20 &&
                         _fastMA.Result.LastValue > _slowMA.Result.LastValue &&
-                        _ltffastMA.Result.Last(1) < _ltfslowMA.Result.Last(1) &&
                         _ltffastMA.Result.LastValue > _ltfslowMA.Result.LastValue &&
                         _htffastMA.Result.LastValue > _htfslowMA.Result.LastValue)
                     {
@@ -799,9 +755,8 @@ namespace cAlgo.Robots
                     }
 
                     if (validSell &&
-                        //_williamsPctR.Result.LastValue < -80 &&
+                        _williamsPctR.Result.LastValue < -80 &&
                         _fastMA.Result.LastValue < _slowMA.Result.LastValue &&
-                        _ltffastMA.Result.Last(1) > _ltfslowMA.Result.Last(1) &&
                         _ltffastMA.Result.LastValue < _ltfslowMA.Result.LastValue &&
                         _htffastMA.Result.LastValue < _htfslowMA.Result.LastValue)
                     {
@@ -818,11 +773,11 @@ namespace cAlgo.Robots
                     }
                 }
 
-                 if (MyAutoStrategyName == AutoStrategyName.HHLL_MTF)
+                 if (MyAutoStrategyName == AutoStrategyName.HHLL)
                  {
-                     if (IsHTFBullish() && IsBullish() && IsLTFBullish() && _switchedToBullish && _williamsPctR.Result.Last(1) > -20) _signalEntry = 1;
+                     if (IsBullish()  && _williamsPctR.Result.Last(1) > -20) _signalEntry = 1;
 
-                     if (!IsHTFBullish() && !IsBullish() && !IsLTFBullish() && _switchedToBearish && _williamsPctR.Result.Last(1) < -80) _signalEntry = -1;
+                     if (!IsBullish() && _williamsPctR.Result.Last(1) < -80) _signalEntry = -1;
                  } 
 
                 if (MyAutoStrategyName == AutoStrategyName.RSIMeanReversion)
@@ -892,6 +847,10 @@ namespace cAlgo.Robots
 
                 if (_totalOpenBuy == 0)
                 {
+                    if (SplitTrades) 
+                    { 
+                    
+                    }
                     var result = ExecuteMarketOrder(TradeType.Buy, SymbolName, _volumeInUnits, OrderComment, StopLoss, TakeProfit);
                     if (result.Error != null) GetError(result.Error.ToString());
                     else
@@ -974,7 +933,7 @@ namespace cAlgo.Robots
                 {
                     _highestLow = lowPrice;
                     _highestHigh = Math.Max(highPrice, _highestHigh);
-                    if (MyAutoStrategyName == AutoStrategyName.BreakoutScalper) Chart.DrawHorizontalLine("ShowSwingHigh", _highestHigh, "#5335E5", 2, LineStyle.DotsVeryRare);
+                    if (MyAutoStrategyName == AutoStrategyName.BreakoutTrading) Chart.DrawHorizontalLine("ShowSwingHigh", _highestHigh, "#5335E5", 2, LineStyle.DotsVeryRare);
                 }
                 if (highPrice < _highestLow)
                 {
@@ -983,7 +942,7 @@ namespace cAlgo.Robots
                     _lastSwingHigh = _highestHigh;
                     _lowestLow = double.MaxValue;
 
-                    if (MyAutoStrategyName == AutoStrategyName.BreakoutScalper)
+                    if (MyAutoStrategyName == AutoStrategyName.BreakoutTrading)
                     {
                         double openprice = _highestHigh + Symbol.Spread + PipsToDigits(PendingOrderDistance);
 
@@ -1011,7 +970,7 @@ namespace cAlgo.Robots
                 {
                     _lowestHigh = highPrice;
                     _lowestLow = Math.Min(lowPrice, _lowestLow);
-                    if (MyAutoStrategyName == AutoStrategyName.BreakoutScalper)  Chart.DrawHorizontalLine("ShowSwingLow", _lowestLow, "#FC1D85", 1, LineStyle.DotsVeryRare);
+                    if (MyAutoStrategyName == AutoStrategyName.BreakoutTrading)  Chart.DrawHorizontalLine("ShowSwingLow", _lowestLow, "#FC1D85", 1, LineStyle.DotsVeryRare);
                 }
                 if (lowPrice > _lowestHigh)
                 {
@@ -1020,7 +979,7 @@ namespace cAlgo.Robots
                     _lastSwingLow = _lowestLow;
                     _highestHigh = double.MinValue;
 
-                    if (MyAutoStrategyName == AutoStrategyName.BreakoutScalper)
+                    if (MyAutoStrategyName == AutoStrategyName.BreakoutTrading)
                     {
                         double openprice = _lowestLow - Symbol.Spread - PipsToDigits(PendingOrderDistance);
 
@@ -1047,67 +1006,9 @@ namespace cAlgo.Robots
         }
         #endregion
 
-        #region LTF Bullish
-        private bool IsLTFBullish()
-        {
-            double highPriceLTF = _lowerTimeframeBars.HighPrices.Last(1);
-            double lowPriceLTF = _lowerTimeframeBars.LowPrices.Last(1);
+        
 
-            if (_isUpSwingLTF)
-            {
-                if (lowPriceLTF > _highestLowLTF) _highestLowLTF = lowPriceLTF;
-                if (highPriceLTF < _highestLowLTF)
-                {
-                    _isUpSwingLTF = false;
-                    _lowestHighLTF = highPriceLTF;  
-                }
-            }
-            else
-            {
-                if (highPriceLTF < _lowestHighLTF) _lowestHighLTF = highPriceLTF;
-
-                if (lowPriceLTF > _lowestHighLTF)
-                {
-                    _isUpSwingLTF = true;
-                    _highestLowLTF = lowPriceLTF;
-                }
-            }
-            return _isUpSwingLTF;
-        }
-        #endregion  
-
-        #region HTF Bullish
-        private bool IsHTFBullish()
-        {
-
-            double openPriceHTF = _higherTimeframeBars.OpenPrices.Last(1);
-            double closePriceHTF = _higherTimeframeBars.ClosePrices.Last(1);
-            double highPriceHTF = _higherTimeframeBars.HighPrices.Last(1);
-            double lowPriceHTF = _higherTimeframeBars.LowPrices.Last(1);
-
-            if (_isUpSwingHTF)
-            {
-                if (lowPriceHTF > _highestLowHTF) _highestLowHTF = lowPriceHTF;
-                if (highPriceHTF < _highestLowHTF)
-                {
-                    _isUpSwingHTF = false;
-                    _lowestHighHTF = highPriceHTF;
-                }
-            }
-            else
-            {
-                if (highPriceHTF < _lowestHighHTF) _lowestHighHTF = highPriceHTF;
-                if (lowPriceHTF > _lowestHighHTF)
-                {
-                    _isUpSwingHTF = true;
-                    _highestLowHTF = lowPriceHTF;
-                }
-            }
-
-
-            return _isUpSwingHTF;
-        }
-        #endregion
+       
  
         #endregion
 
@@ -1164,18 +1065,16 @@ namespace cAlgo.Robots
         #region Swing Points Calculations
         private void CalculateSwingPoints()
         {
-            double highPriceLTF = _lowerTimeframeBars.HighPrices.LastValue;
-            double lowPriceLTF = _lowerTimeframeBars.LowPrices.LastValue;
+            double highPriceLTF = Bars.HighPrices.LastValue;
+            double lowPriceLTF = Bars.LowPrices.LastValue;
 
             if (_ltffastMA.Result.LastValue > _ltfslowMA.Result.LastValue)
             {
-                if (_ltffastMA.Result.Last(1) < _ltfslowMA.Result.Last(1)) _lastSwingHigh = _defaultSwingHigh;
                 if (_lastSwingHigh < highPriceLTF)                         _lastSwingHigh = highPriceLTF;
             }
 
             if (_ltffastMA.Result.LastValue < _ltfslowMA.Result.LastValue)
             {
-                if (_ltffastMA.Result.Last(1) > _ltfslowMA.Result.Last(1)) _lastSwingLow = _defaultSwingLow;
                 if (_lastSwingLow > lowPriceLTF)                           _lastSwingLow = lowPriceLTF;
             }
         }
