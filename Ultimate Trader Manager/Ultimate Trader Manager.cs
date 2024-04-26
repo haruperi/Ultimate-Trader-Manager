@@ -1065,17 +1065,35 @@ namespace cAlgo.Robots
         #region Swing Points Calculations
         private void CalculateSwingPoints()
         {
-            double highPriceLTF = Bars.HighPrices.LastValue;
-            double lowPriceLTF = Bars.LowPrices.LastValue;
+            double highPrice = Bars.HighPrices.LastValue;
+            double lowPrice = Bars.LowPrices.LastValue;
 
-            if (_ltffastMA.Result.LastValue > _ltfslowMA.Result.LastValue)
+
+            if (_isUpSwing)
             {
-                if (_lastSwingHigh < highPriceLTF)                         _lastSwingHigh = highPriceLTF;
+                if (lowPrice > _highestLow)
+                {
+                    _highestLow = lowPrice;
+                    if (highPrice > _lastSwingHigh) _lastSwingHigh = highPrice;
+                }
+                if (highPrice < _highestLow)
+                {
+                    _isUpSwing = false;
+                    _lowestHigh = highPrice;
+                }
             }
-
-            if (_ltffastMA.Result.LastValue < _ltfslowMA.Result.LastValue)
+            else
             {
-                if (_lastSwingLow > lowPriceLTF)                           _lastSwingLow = lowPriceLTF;
+                if (highPrice < _lowestHigh)
+                {
+                    _lowestHigh = highPrice;
+                    if (lowPrice < _lastSwingLow) _lastSwingLow = lowPrice;
+                }
+                if (lowPrice > _lowestHigh)
+                {
+                    _isUpSwing = true;
+                    _highestLow = lowPrice;
+                }
             }
         }
         #endregion
